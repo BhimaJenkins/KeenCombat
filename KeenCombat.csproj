@@ -1,0 +1,97 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net48</TargetFramework>
+		<AssemblyName>KeenCombat</AssemblyName>
+		<RootNamespace>KeenCombat</RootNamespace>
+		<Nullable>enable</Nullable>
+		<AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+		<LangVersion>latest</LangVersion>
+		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+		<ValheimDir>C:\Program Files (x86)\Steam\steamapps\common\Valheim</ValheimDir>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.1" />
+
+		<Reference Include="0Harmony">
+			<HintPath>..\denikson-BepInExPack_Valheim-5.4.2333\BepInExPack_Valheim\BepInEx\core\0Harmony.dll</HintPath>
+		</Reference>
+		<Reference Include="assembly_valheim">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\assembly_valheim.dll</HintPath>
+			<Private>False</Private>
+			<Publicize>true</Publicize>
+		</Reference>
+		<Reference Include="assembly_guiutils">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\assembly_guiutils.dll</HintPath>
+			<Private>False</Private>
+			<Publicize>true</Publicize>
+		</Reference>
+		<Reference Include="UnityEngine.AnimationModule">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\UnityEngine.AnimationModule.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="UnityEngine.TextRenderingModule">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="assembly_utils">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\assembly_utils.dll</HintPath>
+			<Private>False</Private>
+			<Publicize>true</Publicize>
+		</Reference>
+		<Reference Include="UnityEngine">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\UnityEngine.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="UnityEngine.CoreModule">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="UnityEngine.UI">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\UnityEngine.UI.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="UnityEngine.PhysicsModule">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="UnityEngine.InputLegacyModule">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="Unity.InputSystem">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\Unity.InputSystem.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="BepInEx">
+			<HintPath>$(ValheimDir)\BepInEx\core\BepInEx.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="0Harmony">
+			<HintPath>$(ValheimDir)\BepInEx\core\0Harmony.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="UnityEngine.ParticleSystemModule">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\UnityEngine.ParticleSystemModule.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="UnityEngine.AudioModule">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\UnityEngine.AudioModule.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="UnityEngine.UnityWebRequestModule">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\UnityEngine.UnityWebRequestModule.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="UnityEngine.UnityWebRequestAudioModule">
+			<HintPath>$(ValheimDir)\valheim_Data\Managed\UnityEngine.UnityWebRequestAudioModule.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+	</ItemGroup>
+
+	<Target Name="DeployToBepInEx" AfterTargets="Build">
+		<Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="$(ValheimDir)\BepInEx\plugins\$(AssemblyName)" SkipUnchangedFiles="true" />
+	</Target>
+
+</Project>
