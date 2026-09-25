@@ -14,7 +14,7 @@ namespace KeenCombat
     {
         public const string PluginGUID = "Bhimas.KeenCombat";
         public const string PluginName = "KeenCombat";
-        public const string PluginVersion = "1.0.0";
+        public const string PluginVersion = "1.0.1";
 
         internal static ManualLogSource Log = null!;
         internal static Plugin instance = null!;
@@ -174,6 +174,9 @@ namespace KeenCombat
 
         private Harmony _harmony = null!;
 
+        // Shared so PatchGuard can re-apply patches another mod removed
+        internal static Harmony? HarmonyInstance;
+
         private sealed class ConfigurationManagerAttributes
         {
             public bool? Browsable;
@@ -195,6 +198,10 @@ namespace KeenCombat
 
             _harmony = new Harmony(PluginGUID);
             _harmony.PatchAll();
+            HarmonyInstance = _harmony;
+
+            // Re-apply our input patches if another mod removes them
+            StartCoroutine(Patches.PatchGuard.Loop());
 
             Log.LogInfo($"{PluginName} loaded successfully.");
         }
