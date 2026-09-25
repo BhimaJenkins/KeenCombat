@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- The skill button also triggering a heavy attack after opening a configuration manager (such as Shudnal's). KeenCombat now automatically restores its input handling if another mod removes it.
+- The skill button also triggering a heavy attack after changing a setting in a configuration manager (such as Shudnal's), caused by other mods reloading Valheim's input system. Vanilla heavy attacks are now blocked at the source on weapons with a KeenCombat skill.
 
 ## 1.0.0 — The Magic Update
 
