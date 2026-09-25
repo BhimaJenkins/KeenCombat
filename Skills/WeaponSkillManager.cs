@@ -16,6 +16,15 @@ namespace KeenCombat.Skills
         private static readonly FistSkill _fistSkill = new FistSkill();
         private static readonly TwoHandedMaceSkill _twoHandedMaceSkill = new TwoHandedMaceSkill();
 
+        // Staff skills
+        private static readonly StaffFireballSkill _staffFireballSkill = new StaffFireballSkill();
+        private static readonly StaffIceShardsSkill _staffIceShardsSkill = new StaffIceShardsSkill();
+        private static readonly StaffClusterbombSkill _staffClusterbombSkill = new StaffClusterbombSkill();
+        private static readonly StaffGreenRootsSkill _staffGreenRootsSkill = new StaffGreenRootsSkill();
+        private static readonly StaffSkeletonSkill _staffSkeletonSkill = new StaffSkeletonSkill();
+        private static readonly StaffThunderbloodSkill _staffThunderbloodSkill = new StaffThunderbloodSkill();
+        private static readonly StaffShieldSkill _staffShieldSkill = new StaffShieldSkill();
+
         public static IWeaponSkill? GetSkillForWeapon(ItemDrop.ItemData weapon)
         {
             if (weapon == null) return null;
@@ -23,72 +32,62 @@ namespace KeenCombat.Skills
             string anim = weapon.m_shared.m_attack.m_attackAnimation;
             var itemType = weapon.m_shared.m_itemType;
             var skillType = weapon.m_shared.m_skillType;
+            string itemName = weapon.m_shared.m_name;
 
             // ---------------------------------------------------------------
-            // Type + skill checks FIRST — these take priority over anim names
-            // so modded weapons with reused animations route correctly.
+            // Staff skills — routed by item name FIRST
             // ---------------------------------------------------------------
+            if (anim.StartsWith("staff_"))
+            {
+                return itemName switch
+                {
+                    "$item_stafffireball" => _staffFireballSkill,
+                    "$item_stafficeshards" => _staffIceShardsSkill,
+                    "$item_staffclusterbomb" => _staffClusterbombSkill,
+                    "$item_staffgreenroots" => _staffGreenRootsSkill,
+                    "$item_staffskeleton" => _staffSkeletonSkill,
+                    "$item_staff_thunderblood" => _staffThunderbloodSkill,
+                    "$item_staffshield" => _staffShieldSkill,
+                    // Future staves:
+                    // "$item_staff_spiritcaller" => _staffSpiritCallerSkill,
+                    // "$item_staff_frostorbs"    => _staffFrostOrbsSkill,
+                    _ => null,
+                };
+            }
 
-            // 2H Mace — must come before greatsword/battleaxe anim checks
-            // since Therzie's 2H maces may use those animation names
+            // ---------------------------------------------------------------
+            // Type + skill checks
+            // ---------------------------------------------------------------
             if (itemType == ItemDrop.ItemData.ItemType.TwoHandedWeapon &&
                 skillType == global::Skills.SkillType.Clubs)
                 return _twoHandedMaceSkill;
 
-            // Fist weapons — TwoHandedWeapon + Unarmed (excludes bare hands)
             if (itemType == ItemDrop.ItemData.ItemType.TwoHandedWeapon &&
                 skillType == global::Skills.SkillType.Unarmed)
                 return _fistSkill;
 
             // ---------------------------------------------------------------
-            // Animation name checks — for weapons that share SkillType with
-            // their 1H counterparts
+            // Animation name checks
             // ---------------------------------------------------------------
-
-            // Pickaxe — exclude entirely
             if (anim.StartsWith("swing_pickaxe")) return null;
-
-            // 2H Sword — shares SkillType.Swords with regular swords
             if (anim.StartsWith("greatsword")) return _greatswordSkill;
-
-            // 2H Axe — shares SkillType.Axes with regular axes
             if (anim.StartsWith("battleaxe")) return _greatswordSkill;
-
-            // Dual Knife — shares SkillType.Knives with regular knives
             if (anim.StartsWith("dual_knives")) return _dualKnifeSkill;
 
             // ---------------------------------------------------------------
-            // Unique weapon name checks — add specific overrides here.
-            // e.g. if (weapon.m_shared.m_name == "$item_sword_dyrnwyn")
-            //          return _dyrnwynSkill;
+            // Skill type switch
             // ---------------------------------------------------------------
-
             switch (skillType)
             {
-                case global::Skills.SkillType.Swords:
-                    return _swordSkill;
-
-                case global::Skills.SkillType.Clubs:
-                    return _maceSkill;
-
-                case global::Skills.SkillType.Axes:
-                    return _axeSkill;
-
+                case global::Skills.SkillType.Swords: return _swordSkill;
+                case global::Skills.SkillType.Clubs: return _maceSkill;
+                case global::Skills.SkillType.Axes: return _axeSkill;
                 case global::Skills.SkillType.Polearms:
-                case global::Skills.SkillType.Spears:
-                    return _atgeirSkill;
-
-                case global::Skills.SkillType.Crossbows:
-                    return _crossbowSkill;
-
-                case global::Skills.SkillType.Knives:
-                    return _knifeSkill;
-
-                case global::Skills.SkillType.Bows:
-                    return _bowSkill;
-
-                default:
-                    return null;
+                case global::Skills.SkillType.Spears: return _atgeirSkill;
+                case global::Skills.SkillType.Crossbows: return _crossbowSkill;
+                case global::Skills.SkillType.Knives: return _knifeSkill;
+                case global::Skills.SkillType.Bows: return _bowSkill;
+                default: return null;
             }
         }
 

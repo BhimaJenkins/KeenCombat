@@ -13,6 +13,10 @@ namespace KeenCombat.Skills
         public string CooldownSEName => "SE_Cooldown_Bow";
 
         private const string ZdoKeyPrimalRally = "KeenCombat_PrimalRally";
+        private const string ZdoKeyScale = "KeenCombat_SummonScale";
+        private const string ZdoKeyDamageMult = "KeenCombat_SummonDamageMult";
+        private const string ZdoKeyHpMult = "KeenCombat_SummonHpMult";
+        private const string ZdoKeyOwner = "KeenCombat_SummonOwner";
 
         private static Character? _activeSummon = null;
         private static Coroutine? _summonCoroutine = null;
@@ -54,24 +58,26 @@ namespace KeenCombat.Skills
             if (zsync != null)
                 zsync.SetTrigger("emote_comehere");
 
-            player.StartCoroutine(Plugin.LoadAudioClip("PetCall.ogg", clip =>
-            {
-                if (clip == null) return;
-                var src = player.GetComponent<AudioSource>()
-                       ?? player.gameObject.AddComponent<AudioSource>();
-                src.spatialBlend = 1f;
-                src.PlayOneShot(clip);
-            }));
+            NetworkedEffects.BroadcastOgg("PetCall.ogg", player.transform.position);
 
             yield return new WaitForSeconds(1.0f);
             if (player == null || player.IsDead()) yield break;
 
-            var (prefabName, starLevel) = GetCreatureForBow(weapon);
+            var (prefabName, starLevel, bowScale, bowDamageMult, bowHpMult) =
+                GetCreatureForBow(weapon);
+
+            float finalScale = bowScale > 0f ? bowScale : GetCreatureScale(prefabName);
+            float finalDamageMult = bowDamageMult > 0f ? bowDamageMult : 1.0f;
+            float finalHpMult = bowHpMult > 0f ? bowHpMult : 1.0f;
+
+            KC_Log.Debug($"PrimalRally: spawning {prefabName} " +
+                         $"(star {starLevel}, scale {finalScale}, " +
+                         $"dmg {finalDamageMult}, hp {finalHpMult})");
 
             var creaturePrefab = ZNetScene.instance?.GetPrefab(prefabName);
             if (creaturePrefab == null)
             {
-                Plugin.Log.LogWarning($"PrimalRally: prefab '{prefabName}' not found!");
+                KC_Log.Warn($"PrimalRally: prefab '{prefabName}' not found!");
                 yield break;
             }
 
@@ -84,7 +90,7 @@ namespace KeenCombat.Skills
 
             if (character == null)
             {
-                Plugin.Log.LogWarning($"PrimalRally: '{prefabName}' has no Character!");
+                KC_Log.Warn($"PrimalRally: '{prefabName}' has no Character!");
                 Object.Destroy(spawnedObj);
                 yield break;
             }
@@ -96,11 +102,18 @@ namespace KeenCombat.Skills
                 nviewLevel?.GetZDO()?.Set(ZDOVars.s_level, starLevel + 1);
             }
 
-            if (prefabName == "Troll" || prefabName == "Lox")
-                spawnedObj.transform.localScale = Vector3.one * 0.5f;
+            // Apply HP multiplier
+            if (finalHpMult != 1.0f)
+            {
+                float newMaxHp = character.GetMaxHealth() * finalHpMult;
+                character.SetMaxHealth(newMaxHp);
+                character.SetHealth(newMaxHp);
+            }
 
+            // Force friendly faction
             character.m_faction = Character.Faction.Players;
 
+            // ZDO — sync all values to all clients
             var nview = spawnedObj.GetComponent<ZNetView>();
             if (nview != null && nview.GetZDO() != null)
             {
@@ -108,7 +121,15 @@ namespace KeenCombat.Skills
                 nview.GetZDO().Set(ZDOVars.s_tamedName, "Ally");
                 nview.GetZDO().Set(ZDOVars.s_follow, player.GetPlayerName());
                 nview.GetZDO().Set(ZdoKeyPrimalRally, true);
+                nview.GetZDO().Set(ZdoKeyScale, finalScale);
+                nview.GetZDO().Set(ZdoKeyDamageMult, finalDamageMult);
+                nview.GetZDO().Set(ZdoKeyHpMult, finalHpMult);
+                nview.GetZDO().Set(ZdoKeyOwner, player.GetPlayerName());
             }
+
+            // Apply scale locally
+            if (finalScale > 0f && finalScale != 1f)
+                spawnedObj.transform.localScale = Vector3.one * finalScale;
 
             var tameable = spawnedObj.GetComponent<Tameable>();
             if (tameable != null)
@@ -117,18 +138,70 @@ namespace KeenCombat.Skills
                 spawnedObj.AddComponent<Tameable>();
 
             var monsterAI = spawnedObj.GetComponent<MonsterAI>();
+            var animalAI = spawnedObj.GetComponent<AnimalAI>();
+
             if (monsterAI != null)
             {
                 monsterAI.SetFollowTarget(player.gameObject);
                 monsterAI.m_enableHuntPlayer = false;
+                monsterAI.m_alertRange = 60f;
+                monsterAI.m_viewRange = 60f;
+                monsterAI.m_viewAngle = 180f;
+                monsterAI.m_hearRange = 60f;
+                player.StartCoroutine(ResetAwarenessAfterDelay(monsterAI, null, 10f));
+            }
+            else if (animalAI != null)
+            {
+                Object.Destroy(animalAI);
+                var newMonsterAI = spawnedObj.AddComponent<MonsterAI>();
+                newMonsterAI.SetFollowTarget(player.gameObject);
+                newMonsterAI.m_enableHuntPlayer = false;
+                newMonsterAI.m_alertRange = 60f;
+                newMonsterAI.m_viewRange = 60f;
+                newMonsterAI.m_viewAngle = 180f;
+                newMonsterAI.m_hearRange = 60f;
+                player.StartCoroutine(ResetAwarenessAfterDelay(null, newMonsterAI, 10f));
             }
 
             _activeSummon = character;
+            KC_Log.Debug($"PrimalRally: {prefabName} summoned.");
 
             if (_summonCoroutine != null)
                 player.StopCoroutine(_summonCoroutine);
             _summonCoroutine = player.StartCoroutine(
                 SummonTimer(player, character, Plugin.BowSummonDuration.Value));
+        }
+
+        public static float GetCreatureScale(string prefabName)
+        {
+            string mapStr = Plugin.CreatureScaleMap.Value;
+            foreach (var entry in mapStr.Split(','))
+            {
+                var parts = entry.Trim().Split(':');
+                if (parts.Length < 2) continue;
+                if (parts[0].Trim().Equals(prefabName,
+                    System.StringComparison.OrdinalIgnoreCase))
+                {
+                    if (float.TryParse(parts[1].Trim(),
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out float s))
+                        return s;
+                }
+            }
+            return 1.0f;
+        }
+
+        private static IEnumerator ResetAwarenessAfterDelay(
+            MonsterAI? ai1, MonsterAI? ai2, float delay)
+        {
+            yield return new WaitForSeconds(delay);
+            var ai = ai1 ?? ai2;
+            if (ai == null) yield break;
+            ai.m_alertRange = 20f;
+            ai.m_viewRange = 20f;
+            ai.m_viewAngle = 90f;
+            ai.m_hearRange = 20f;
         }
 
         private static IEnumerator SummonTimer(Player player, Character summon, float duration)
@@ -149,6 +222,12 @@ namespace KeenCombat.Skills
                 DespawnSummon(summon);
         }
 
+        public static void DespawnActiveSummon()
+        {
+            if (_activeSummon != null && !_activeSummon.IsDead())
+                DespawnSummon(_activeSummon);
+        }
+
         private static void DespawnSummon(Character summon)
         {
             if (summon == null) return;
@@ -167,41 +246,135 @@ namespace KeenCombat.Skills
             _activeSummon = null;
         }
 
-        private static (string prefab, int star) GetCreatureForBow(ItemDrop.ItemData weapon)
+        private static (string prefab, int star, float scale, float damageMult, float hpMult)
+            GetCreatureForBow(ItemDrop.ItemData weapon)
         {
             string bowName = weapon.m_shared.m_name.ToLowerInvariant();
             string mapStr = Plugin.BowCreatureMap.Value;
 
-            var map = new Dictionary<string, (string, int)>();
+            var map = new Dictionary<string, (string, int, float, float, float)>();
             foreach (var entry in mapStr.Split(','))
             {
                 var parts = entry.Trim().Split(':');
                 if (parts.Length < 2) continue;
                 string key = parts[0].Trim().ToLowerInvariant();
                 string creature = parts[1].Trim();
-                int star = parts.Length >= 3 && int.TryParse(parts[2].Trim(), out int s) ? s : 0;
-                map[key] = (creature, star);
+                int star = parts.Length >= 3 && int.TryParse(parts[2].Trim(), out int s)
+                                  ? s : 0;
+                float scale = ParseFloat(parts, 3);
+                float dmgMult = ParseFloat(parts, 4);
+                float hpMult = ParseFloat(parts, 5);
+                map[key] = (creature, star, scale, dmgMult, hpMult);
             }
 
             if (map.TryGetValue(bowName, out var result))
                 return result;
 
-            return ("Neck", 0);
+            KC_Log.Warn($"PrimalRally: no mapping for '{bowName}' — spawning Neck.");
+            return ("Neck", 0, 1.0f, 1.0f, 1.0f);
+        }
+
+        private static float ParseFloat(string[] parts, int index)
+        {
+            if (parts.Length <= index) return 0f;
+            return float.TryParse(parts[index].Trim(),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out float v) ? v : 0f;
         }
     }
 
     // -----------------------------------------------------------------------
-    // Prevent Primal Rally summons from dropping loot on death.
+    // Apply ZDO scale and HP on all clients when a Primal Rally summon spawns.
+    // Retries after 1 second in case ZDO hasn't propagated yet on other clients.
     // -----------------------------------------------------------------------
-    [HarmonyPatch(typeof(CharacterDrop), nameof(CharacterDrop.OnDeath))]
+    [HarmonyPatch(typeof(Character), "Start")]
+    public static class Character_Start_PrimalRallySync
+    {
+        static void Postfix(Character __instance)
+        {
+            var nview = __instance.GetComponent<ZNetView>();
+            if (nview == null || nview.GetZDO() == null) return;
+            if (!nview.GetZDO().GetBool("KeenCombat_PrimalRally")) return;
+
+            // Apply immediately
+            ApplySync(__instance, nview);
+
+            // Retry after 1 second in case ZDO hasn't fully propagated on other clients
+            Plugin.instance.StartCoroutine(ApplySyncDelayed(__instance, nview));
+        }
+
+        private static void ApplySync(Character character, ZNetView nview)
+        {
+            if (character == null || nview == null || nview.GetZDO() == null) return;
+
+            float scale = nview.GetZDO().GetFloat("KeenCombat_SummonScale", 1.0f);
+            if (scale > 0f && scale != 1f)
+                character.transform.localScale = Vector3.one * scale;
+
+            float hpMult = nview.GetZDO().GetFloat("KeenCombat_SummonHpMult", 1.0f);
+            if (hpMult != 1.0f && nview.IsOwner())
+            {
+                float newMaxHp = character.GetMaxHealth() * hpMult;
+                character.SetMaxHealth(newMaxHp);
+                character.SetHealth(newMaxHp);
+            }
+
+            character.m_faction = Character.Faction.Players;
+            KC_Log.Debug($"PrimalRallySync: {character.m_name} scale={scale} hpMult={hpMult}");
+        }
+
+        private static IEnumerator ApplySyncDelayed(Character character, ZNetView nview)
+        {
+            yield return new WaitForSeconds(1.0f);
+            ApplySync(character, nview);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Apply damage multiplier from ZDO when a Primal Rally summon attacks.
+    // -----------------------------------------------------------------------
+    [HarmonyPatch(typeof(Character), nameof(Character.Damage))]
+    public static class Character_Damage_PrimalRallyMult
+    {
+        static void Prefix(Character __instance, ref HitData hit)
+        {
+            if (hit == null) return;
+            var attacker = hit.GetAttacker();
+            if (attacker == null) return;
+
+            var nview = attacker.GetComponent<ZNetView>();
+            if (nview == null || nview.GetZDO() == null) return;
+            if (!nview.GetZDO().GetBool("KeenCombat_PrimalRally")) return;
+
+            // Block damage to the player entirely
+            if (__instance.IsPlayer())
+            {
+                hit.m_damage = new HitData.DamageTypes();
+                return;
+            }
+
+            float dmgMult = nview.GetZDO().GetFloat("KeenCombat_SummonDamageMult", 1.0f);
+            if (dmgMult != 1.0f)
+                hit.m_damage.Modify(dmgMult);
+
+            if (attacker.m_name == "$enemy_troll")
+                hit.m_damage.Modify(0.5f);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Prevent Primal Rally summons from dropping loot.
+    // -----------------------------------------------------------------------
+    [HarmonyPatch(typeof(CharacterDrop), nameof(CharacterDrop.GenerateDropList))]
     public static class CharacterDrop_PrimalRally_NoDrop
     {
-        static bool Prefix(CharacterDrop __instance)
+        static void Postfix(CharacterDrop __instance,
+                            ref List<KeyValuePair<GameObject, int>> __result)
         {
             var nview = __instance.GetComponent<ZNetView>();
             if (nview?.GetZDO()?.GetBool("KeenCombat_PrimalRally") == true)
-                return false;
-            return true;
+                __result.Clear();
         }
     }
 
@@ -219,35 +392,54 @@ namespace KeenCombat.Skills
 
             var nview = attacker.GetComponent<ZNetView>();
             if (nview?.GetZDO()?.GetBool("KeenCombat_PrimalRally") == true)
-                return false; // Block all structure damage from summons
+                return false;
 
             return true;
         }
     }
 
     // -----------------------------------------------------------------------
-    // Reduce damage dealt BY tamed Trolls by 50%.
+    // Despawn active summon when player logs out.
     // -----------------------------------------------------------------------
-    [HarmonyPatch(typeof(Character), nameof(Character.Damage))]
-    public static class Character_Damage_PrimalRallyTrollNerf
+    [HarmonyPatch(typeof(Game), "ContinueLogout")]
+    public static class Game_Logout_DespawnSummon
     {
-        static void Prefix(Character __instance, ref HitData hit)
+        static void Prefix()
         {
-            if (hit == null) return;
-            var attacker = hit.GetAttacker();
-            if (attacker == null) return;
+            KC_Log.Debug("PrimalRally: ContinueLogout — despawning summon.");
+            BowSkill.DespawnActiveSummon();
+        }
+    }
 
-            var nview = attacker.GetComponent<ZNetView>();
-            if (nview != null && nview.GetZDO() != null)
+    // -----------------------------------------------------------------------
+    // Clean up lingering summons on login.
+    // -----------------------------------------------------------------------
+    [HarmonyPatch(typeof(Game), "SpawnPlayer")]
+    public static class Game_SpawnPlayer_CleanupSummon
+    {
+        static void Postfix()
+        {
+            var player = Player.m_localPlayer;
+            if (player == null) return;
+
+            string playerName = player.GetPlayerName();
+
+            var toDestroy = new List<ZNetView>();
+            foreach (var go in ZNetScene.instance.m_instances.Values)
             {
-                if (nview.GetZDO().GetBool("KeenCombat_PrimalRally"))
-                {
-                    if (attacker.m_name == "$enemy_troll")
-                    {
-                        hit.m_damage.Modify(0.5f);
-                      
-                    }
-                }
+                if (go == null) continue;
+                var nview = go.GetComponent<ZNetView>();
+                if (nview?.GetZDO() == null) continue;
+                if (!nview.GetZDO().GetBool("KeenCombat_PrimalRally")) continue;
+                if (nview.GetZDO().GetString("KeenCombat_SummonOwner") != playerName) continue;
+                toDestroy.Add(nview);
+            }
+
+            foreach (var nview in toDestroy)
+            {
+                KC_Log.Debug("PrimalRally: cleaning up lingering summon on login.");
+                if (nview.IsOwner())
+                    nview.Destroy();
             }
         }
     }

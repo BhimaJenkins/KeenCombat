@@ -14,9 +14,7 @@ namespace KeenCombat.HUD
             var field = typeof(StatusEffect).GetField("m_time",
                 System.Reflection.BindingFlags.NonPublic |
                 System.Reflection.BindingFlags.Instance);
-
             if (field == null) return 0f;
-
             float elapsed = (float)field.GetValue(this);
             return Mathf.Max(0f, m_ttl - elapsed);
         }
@@ -27,12 +25,12 @@ namespace KeenCombat.HUD
 
             var instance = ScriptableObject.CreateInstance<SE_SkillCooldown>();
             instance.name = seName;
-            instance.m_name = "$weaponskill_cooldown_name";
+            instance.m_name = "Skill Cooldown";
             instance.m_icon = null;
             instance.m_startMessageType = MessageHud.MessageType.TopLeft;
             instance.m_startMessage = "";
             instance.m_stopMessageType = MessageHud.MessageType.TopLeft;
-            instance.m_stopMessage = "$weaponskill_ready";
+            instance.m_stopMessage = "Skill Ready!";
 
             if (ObjectDB.instance != null && !ObjectDB.instance.m_StatusEffects.Contains(instance))
             {
@@ -48,15 +46,13 @@ namespace KeenCombat.HUD
                 Plugin.Log.LogWarning($"SE_SkillCooldown not registered: {seName}");
                 return;
             }
-
             instance.m_ttl = duration;
-            player.GetSEMan().AddStatusEffect(instance);
+            player.GetSEMan().AddStatusEffect(instance, true, 0, 0f);
         }
 
         public static bool IsOnCooldown(Player player, string seName)
         {
-            return player.GetSEMan()
-                         .HaveStatusEffect(seName.GetStableHashCode());
+            return player.GetSEMan().HaveStatusEffect(seName.GetStableHashCode());
         }
 
         public static SE_SkillCooldown? GetActive(Player player, string seName)
@@ -83,7 +79,23 @@ namespace KeenCombat.HUD
         }
     }
 
-    [HarmonyPatch(typeof(ObjectDB), nameof(ObjectDB.Awake))]
+    // -----------------------------------------------------------------------
+    // Register NetworkedEffects RPCs for each world session. Safe to call
+    // repeatedly — it only registers once per ZRoutedRpc instance.
+    // -----------------------------------------------------------------------
+    [HarmonyPatch(typeof(Game), "Start")]
+    public static class Game_Start_RegisterEffects
+    {
+        static void Postfix()
+        {
+            NetworkedEffects.Register();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Register all SE cooldowns, buffs and NetworkedEffects RPCs
+    // -----------------------------------------------------------------------
+    [HarmonyPatch(typeof(ObjectDB), "Awake")]
     public static class ObjectDB_Awake_Patch
     {
         static void Postfix(ObjectDB __instance)
@@ -103,37 +115,19 @@ namespace KeenCombat.HUD
             SE_MaceSkillBuff.Register();
             SE_AxeSkillBuff.Register();
             SE_KnifeStealthBuff.Register();
+            SE_RegenerationBuff.Register();
+            SE_ThunderstruckBuff.Register();
 
-            RegisterLocalizations();
-        }
-
-        private static void RegisterLocalizations()
-        {
-            var loc = Localization.instance;
-            if (loc == null) return;
-
-            loc.AddWord("weaponskill_cooldown_name", "Skill Cooldown");
-            loc.AddWord("weaponskill_ready", "Skill Ready!");
-            loc.AddWord("weaponskill_sword_hint", "Blink Strike");
-            loc.AddWord("weaponskill_mace_hint", "Bulwark");
-            loc.AddWord("weaponskill_axe_hint", "Frenzy");
-            loc.AddWord("weaponskill_atgeir_hint", "Falcon Blitz");
-            loc.AddWord("weaponskill_crossbow_hint", "Rapid Fire");
-            loc.AddWord("weaponskill_knife_hint", "Assassination");
-            loc.AddWord("weaponskill_greatsword_hint", "Whirlwind");
-            loc.AddWord("weaponskill_bow_hint", "Primal Rally");
-            loc.AddWord("weaponskill_dualknife_hint", "Poison Mayhem");
-            loc.AddWord("weaponskill_fist_hint", "Onslaught");
-            loc.AddWord("weaponskill_2hmace_hint", "Earthquake");
+            NetworkedEffects.Register();
         }
     }
 
-    [HarmonyPatch(typeof(KeyHints), nameof(KeyHints.Awake))]
-    public static class KeyHints_Awake_Patch
+    [HarmonyPatch(typeof(KeyHints), "Start")]
+    public static class KeyHints_Start_Patch
     {
         static void Postfix(KeyHints __instance)
         {
-            Plugin.Log.LogInfo("KeyHints.Awake — KeenCombat loaded.");
+            Plugin.Log.LogInfo("KeyHints.Start — KeenCombat loaded.");
         }
     }
 }

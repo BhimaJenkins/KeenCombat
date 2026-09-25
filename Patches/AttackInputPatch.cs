@@ -16,6 +16,9 @@ namespace KeenCombat.Patches
         private static bool _skillFired = false;
         private static bool _rtWasPressed = false;
 
+        // Throttled weapon info log
+        private static float _lastStaffLog = 0f;
+
         static void Prefix(Player __instance)
         {
             if (__instance != Player.m_localPlayer) return;
@@ -28,12 +31,29 @@ namespace KeenCombat.Patches
             if (InventoryGui.IsVisible()) return;
             if (__instance.InPlaceMode()) return;
             if (Hud.IsPieceSelectionVisible()) return;
+            if (Minimap.IsOpen()) return;
+            if (Chat.instance != null && Chat.instance.HasFocus()) return;
+            if (Console.IsVisible()) return;
 
             var currentWeapon = __instance.GetCurrentWeapon();
             if (currentWeapon == null) return;
+
+            // Throttled weapon info log — equip a weapon to see its details
+            if (Time.time - _lastStaffLog > 2f)
+            {
+                _lastStaffLog = Time.time;
+                KC_Log.Debug($"Weapon: {currentWeapon.m_shared.m_name} " +
+                             $"anim: {currentWeapon.m_shared.m_attack.m_attackAnimation} " +
+                             $"type: {currentWeapon.m_shared.m_itemType} " +
+                             $"skill: {currentWeapon.m_shared.m_skillType}");
+            }
+
             if (currentWeapon.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Tool) return;
             if (currentWeapon.m_shared.m_attack.m_attackAnimation.StartsWith("swing_pickaxe")) return;
             if (currentWeapon.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Bow) return;
+            
+            // Skip hold-to-heavy for staves — they use normal attack for their abilities
+            if (currentWeapon.m_shared.m_attack.m_attackAnimation.StartsWith("staff_")) return;
 
             // ---------------------------------------------------------------
             // Mouse hold-to-heavy — independent state
@@ -122,13 +142,17 @@ namespace KeenCombat.Patches
 
             AttackInputState.ForceNotInAttack = false;
 
+            if (InventoryGui.IsVisible()) return;
+            if (__instance.InPlaceMode()) return;
+            if (Hud.IsPieceSelectionVisible()) return;
+            if (Minimap.IsOpen()) return;
+            if (Chat.instance != null && Chat.instance.HasFocus()) return;
+            if (Console.IsVisible()) return;
+
             var currentWeapon = __instance.GetCurrentWeapon();
             if (currentWeapon == null) return;
             if (currentWeapon.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Tool) return;
             if (currentWeapon.m_shared.m_attack.m_attackAnimation.StartsWith("swing_pickaxe")) return;
-            if (InventoryGui.IsVisible()) return;
-            if (__instance.InPlaceMode()) return;
-            if (Hud.IsPieceSelectionVisible()) return;
 
             var skill = Skills.WeaponSkillManager.GetSkillForWeapon(currentWeapon);
             if (skill == null) return;
@@ -213,7 +237,6 @@ namespace KeenCombat.Patches
             {
                 seman.RemoveStatusEffect(buff);
                 HUD.SE_SkillCooldown.Apply(player, cooldownDuration, cooldownSEName);
-                Plugin.Log.LogInfo($"Buff '{buffSEName}' removed — weapon swapped. Cooldown started.");
             }
         }
     }

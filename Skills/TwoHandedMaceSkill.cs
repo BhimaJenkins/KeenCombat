@@ -1,4 +1,5 @@
 ﻿using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace KeenCombat.Skills
@@ -12,6 +13,7 @@ namespace KeenCombat.Skills
 
         private const string SlamAnimName = "swing_sledge";
         private const string StompVfxName = "vfx_gdking_stomp";
+        private const string StompOgg = "Onslaught.ogg";
         private const float StompScale = 0.7f;
         private const float StompSpacing = 2.0f;
         private const float StompInterval = 0.3f;
@@ -20,10 +22,6 @@ namespace KeenCombat.Skills
 
         private static Sprite? _icon = null;
         private static bool _iconLoaded = false;
-
-        // Cache the audio clip after first load
-        private static AudioClip? _cachedClip = null;
-        private static bool _clipLoaded = false;
 
         public Sprite? Icon
         {
@@ -63,9 +61,6 @@ namespace KeenCombat.Skills
         {
             if (player == null || player.IsDead()) yield break;
 
-            var animator = player.GetComponentInChildren<Animator>();
-            if (animator == null) yield break;
-
             // Lock facing to camera
             Vector3 attackDir = GameCamera.instance != null
                 ? new Vector3(GameCamera.instance.transform.forward.x, 0f,
@@ -83,61 +78,34 @@ namespace KeenCombat.Skills
             player.m_runSpeed = 0f;
             player.m_turnSpeed = 0f;
 
-            // Preload audio clip if not cached
-            if (!_clipLoaded)
-            {
-                yield return player.StartCoroutine(
-                    Plugin.LoadAudioClip("Onslaught.ogg", clip =>
-                    {
-                        _cachedClip = clip;
-                        _clipLoaded = true;
-                    }));
-            }
-
-            var stompVfxPrefab = ZNetScene.instance?.GetPrefab(StompVfxName);
-            if (stompVfxPrefab == null)
-                Plugin.Log.LogWarning($"EarthquakeSkill: '{StompVfxName}' not found!");
-
-            // Play slam animation
-            animator.SetTrigger(SlamAnimName);
+            // Slam animation — synced to all players by ZSyncAnimation
+            var zsync = player.GetComponent<ZSyncAnimation>();
+            if (zsync != null)
+                zsync.SetTrigger(SlamAnimName);
 
             // 1 second windup delay — lines up with hammer hitting the ground
             yield return new WaitForSeconds(1.0f);
 
-            if (player == null || player.IsDead()) yield break;
-
-            // Sequential stomp explosions — audio plays with each one
+            // Sequential stomp explosions
             for (int i = 0; i < StompCount; i++)
             {
-                if (player == null || player.IsDead()) yield break;
+                if (player == null || player.IsDead()) break;
 
                 float dist = StompSpacing * (i + 1);
                 Vector3 stompPos = player.transform.position + attackDir * dist;
                 stompPos.y = player.transform.position.y;
 
-                // Spawn stomp VFX at 70% scale
-                if (stompVfxPrefab != null)
-                {
-                    var vfx = Object.Instantiate(stompVfxPrefab, stompPos,
-                                                 Quaternion.identity);
-                    vfx.transform.localScale = Vector3.one * StompScale;
-                }
-
-                // Play audio on each stomp
-                if (_cachedClip != null)
-                {
-                    var src = player.GetComponent<AudioSource>()
-                           ?? player.gameObject.AddComponent<AudioSource>();
-                    src.spatialBlend = 1f;
-                    src.PlayOneShot(_cachedClip);
-                }
+                // Stomp VFX at 70% scale and sound at the impact — all players
+                NetworkedEffects.BroadcastVfx(StompVfxName, stompPos,
+                    Quaternion.identity, StompScale);
+                NetworkedEffects.BroadcastOgg(StompOgg, stompPos);
 
                 ApplyStompHit(player, weapon, stompPos);
 
                 yield return new WaitForSeconds(StompInterval);
             }
 
-            // Restore movement
+            // Restore movement (also runs if the stomps were cut short)
             if (player != null)
             {
                 player.m_speed = savedSpeed;
@@ -149,17 +117,10 @@ namespace KeenCombat.Skills
         private static void ApplyStompHit(Player player, ItemDrop.ItemData weapon,
                                            Vector3 position)
         {
-            HitData hit = new HitData();
-            hit.m_damage = weapon.GetDamage();
-            hit.m_damage.Modify(Plugin.TwoHandedMaceSkillDamage.Value);
-            hit.m_pushForce = 3.0f;
-            hit.m_staggerMultiplier = 2.0f;
-            hit.m_dir = Vector3.up;
-            hit.m_attacker = player.GetZDOID();
-            hit.m_point = position;
+            var cols = Physics.OverlapSphere(position + Vector3.up, StompRadius, SkillMasks.Characters);
 
-            int mask = LayerMask.GetMask("character");
-            var cols = Physics.OverlapSphere(position + Vector3.up, StompRadius, mask);
+            // One hit per enemy per stomp, even if it has several colliders
+            var alreadyHit = new HashSet<Character>();
 
             foreach (var col in cols)
             {
@@ -168,8 +129,18 @@ namespace KeenCombat.Skills
                 if (character == player) continue;
                 if (character.IsPlayer() && !player.IsPVPEnabled()) continue;
                 if (character.m_faction == Character.Faction.Players) continue;
+                if (!alreadyHit.Add(character)) continue;
 
+                // Fresh HitData per enemy — Valheim modifies it when applied
+                HitData hit = new HitData();
+                hit.m_damage = weapon.GetDamage();
+                hit.m_damage.Modify(Plugin.TwoHandedMaceSkillDamage.Value);
+                hit.m_pushForce = 3.0f;
+                hit.m_staggerMultiplier = 2.0f;
+                hit.m_dir = Vector3.up;
+                hit.m_attacker = player.GetZDOID();
                 hit.m_point = character.transform.position;
+
                 character.Damage(hit);
 
                 if (Plugin.TestMode.Value && character.GetHealth() <= 0f)

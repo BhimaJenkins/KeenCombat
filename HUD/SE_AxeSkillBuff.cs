@@ -6,7 +6,9 @@ namespace KeenCombat.HUD
     // -----------------------------------------------------------------------
     // SE_AxeSkillBuff — Frenzy
     //
-    // Attack speed applied by setting animator.speed in Attack.Start prefix.
+    // Attack speed: the caster's animator speed is raised at the start of
+    // each of THEIR attacks and broadcast so other players see the faster
+    // swings too. Restored (and broadcast) when the buff ends.
     // Move speed saved before buff and restored exactly on Stop to avoid
     // floating point drift from multiply/divide approach.
     // -----------------------------------------------------------------------
@@ -23,6 +25,10 @@ namespace KeenCombat.HUD
         private static float _savedSpeed = 0f;
         private static float _savedRunSpeed = 0f;
 
+        // True while other clients have been told to speed up our animator,
+        // so the "restore to normal" broadcast is only sent when needed
+        private static bool _animBoosted = false;
+
         public static void Register()
         {
             if (_instance != null) return;
@@ -30,7 +36,7 @@ namespace KeenCombat.HUD
             _instance = ScriptableObject.CreateInstance<SE_AxeSkillBuff>();
             _instance.name = StatusEffectName;
             _instance.m_name = "Frenzy";
-            _instance.m_icon = LoadBuffIcon();
+            _instance.m_icon = Plugin.LoadEmbeddedSprite("FrenzyBuffIcon.png"); // shared loader, all install layouts
             _instance.m_startMessageType = MessageHud.MessageType.TopLeft;
             _instance.m_startMessage = "Frenzy!";
             _instance.m_stopMessageType = MessageHud.MessageType.TopLeft;
@@ -41,41 +47,6 @@ namespace KeenCombat.HUD
                 ObjectDB.instance.m_StatusEffects.Add(_instance);
                 Plugin.Log.LogInfo("SE_AxeSkillBuff registered in ObjectDB.");
             }
-        }
-
-        private static Sprite? LoadBuffIcon()
-        {
-            string path = System.IO.Path.Combine(
-                System.IO.Path.GetDirectoryName(
-                    System.Reflection.Assembly.GetExecutingAssembly().Location)!,
-                "icons", "FrenzyBuffIcon.png");
-
-            if (!System.IO.File.Exists(path))
-            {
-                Plugin.Log.LogWarning($"Frenzy buff icon not found: {path}");
-                return null;
-            }
-
-            byte[] data = System.IO.File.ReadAllBytes(path);
-            var tex = new Texture2D(32, 32, TextureFormat.RGBA32, false);
-
-            System.Reflection.MethodInfo? loadImg = null;
-            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
-            {
-                var t = asm.GetType("UnityEngine.ImageConversion");
-                if (t == null) continue;
-                loadImg = t.GetMethod("LoadImage", new[] { typeof(Texture2D), typeof(byte[]) });
-                if (loadImg != null) break;
-            }
-
-            if (loadImg == null) return null;
-
-            loadImg.Invoke(null, new object[] { tex, data });
-            tex.Apply();
-
-            return Sprite.Create(tex,
-                new Rect(0, 0, tex.width, tex.height),
-                new Vector2(0.5f, 0.5f), 100f);
         }
 
         public static void Apply(Player player, float duration,
@@ -99,7 +70,7 @@ namespace KeenCombat.HUD
             player.m_speed *= (1f + moveSpeedBonus);
             player.m_runSpeed *= (1f + moveSpeedBonus);
 
-            player.GetSEMan().AddStatusEffect(_instance);
+            player.GetSEMan().AddStatusEffect(_instance, true, 0, 0f);
             Plugin.Log.LogInfo($"Frenzy applied: +{attackSpeedBonus * 100f}% atk speed, " +
                                $"+{moveSpeedBonus * 100f}% move speed for {duration}s");
         }
@@ -109,6 +80,22 @@ namespace KeenCombat.HUD
             return character.GetSEMan()
                             .GetStatusEffect(StatusEffectName.GetStableHashCode())
                             as SE_AxeSkillBuff;
+        }
+
+        // -------------------------------------------------------------------
+        // Animator speed helpers — broadcast so all players see the change
+        // -------------------------------------------------------------------
+        internal static void BoostAttackAnimation(Player player, float speed)
+        {
+            NetworkedEffects.BroadcastAnimatorSpeed(player, speed);
+            _animBoosted = true;
+        }
+
+        internal static void RestoreAttackAnimation(Player player)
+        {
+            if (!_animBoosted) return;
+            NetworkedEffects.BroadcastAnimatorSpeed(player, 1f);
+            _animBoosted = false;
         }
 
         public override void Stop()
@@ -124,10 +111,8 @@ namespace KeenCombat.HUD
             _savedSpeed = 0f;
             _savedRunSpeed = 0f;
 
-            // Restore animator speed
-            var animator = player.GetComponentInChildren<Animator>();
-            if (animator != null)
-                animator.speed = 1f;
+            // Restore animator speed on all clients
+            RestoreAttackAnimation(player);
 
             Plugin.Log.LogInfo("Frenzy expired — speed restored.");
         }
@@ -140,7 +125,8 @@ namespace KeenCombat.HUD
     }
 
     // -----------------------------------------------------------------------
-    // Set animator.speed when Frenzy is active at the start of each attack.
+    // Speed up the caster's animator at the start of each of THEIR attacks
+    // while Frenzy is active, broadcast to all players.
     // -----------------------------------------------------------------------
     [HarmonyPatch(typeof(Attack), nameof(Attack.Start))]
     public static class Attack_Start_FrenzySpeed_Patch
@@ -150,34 +136,35 @@ namespace KeenCombat.HUD
             var player = Player.m_localPlayer;
             if (player == null) return;
 
+            // Only the local player's own attacks — not enemies or others
+            if (__instance.m_character != player) return;
+
             var buff = SE_AxeSkillBuff.GetActiveBuff(player);
             if (buff == null) return;
 
-            var animator = player.GetComponentInChildren<Animator>();
-            if (animator == null) return;
-
-            animator.speed = 1f + buff.AttackSpeedBonus;
+            SE_AxeSkillBuff.BoostAttackAnimation(player, 1f + buff.AttackSpeedBonus);
         }
     }
 
     // -----------------------------------------------------------------------
-    // Restore animator.speed to 1f when an attack ends and buff is gone.
+    // When the caster's attack ends and Frenzy is gone, restore normal
+    // animator speed on all clients (only if it was boosted).
     // -----------------------------------------------------------------------
     [HarmonyPatch(typeof(Attack), nameof(Attack.Stop))]
     public static class Attack_Stop_FrenzySpeed_Patch
     {
-        static void Postfix()
+        static void Postfix(Attack __instance)
         {
             var player = Player.m_localPlayer;
             if (player == null) return;
 
-            // If buff is still active keep the speed boosted
-            var buff = SE_AxeSkillBuff.GetActiveBuff(player);
-            if (buff != null) return;
+            // Only the local player's own attacks
+            if (__instance.m_character != player) return;
 
-            var animator = player.GetComponentInChildren<Animator>();
-            if (animator != null)
-                animator.speed = 1f;
+            // If buff is still active keep the speed boosted
+            if (SE_AxeSkillBuff.GetActiveBuff(player) != null) return;
+
+            SE_AxeSkillBuff.RestoreAttackAnimation(player);
         }
     }
 }

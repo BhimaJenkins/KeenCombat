@@ -1,4 +1,5 @@
 ﻿using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace KeenCombat.Skills
@@ -53,11 +54,12 @@ namespace KeenCombat.Skills
             float upHeight = Plugin.DualKnifeLeapUp.Value;
             float leapTime = 0.4f;
 
+            // Jump animation — synced to all players by ZSyncAnimation
             var zsync = player.GetComponent<ZSyncAnimation>();
             if (zsync != null)
                 zsync.SetTrigger("jump");
 
-            // Smooth arc leap
+            // Smooth arc leap (position syncs through ZSyncTransform)
             float elapsed = 0f;
             while (elapsed < leapTime)
             {
@@ -89,8 +91,6 @@ namespace KeenCombat.Skills
             float spreadRadius = Plugin.DualKnifeSpread.Value;
 
             var bombPrefab = ZNetScene.instance?.GetPrefab("oozebomb_projectile");
-            var vfxPoison = ZNetScene.instance?.GetPrefab("vfx_swamp_poison_hit");
-            var vfxCinder = ZNetScene.instance?.GetPrefab("fx_Cinder_storm_hit");
 
             for (int i = 0; i < numBombs; i++)
             {
@@ -102,11 +102,12 @@ namespace KeenCombat.Skills
                     Random.Range(-spreadRadius, spreadRadius));
                 Vector3 spawnPos = bombOrigin + offset;
 
-                if (vfxPoison != null)
-                    Object.Instantiate(vfxPoison, spawnPos, Quaternion.identity);
-                if (vfxCinder != null)
-                    Object.Instantiate(vfxCinder, spawnPos, Quaternion.identity);
+                // Impact VFX — broadcast to all players
+                NetworkedEffects.BroadcastVfx("vfx_swamp_poison_hit", spawnPos, Quaternion.identity);
+                NetworkedEffects.BroadcastVfx("fx_Cinder_storm_hit", spawnPos, Quaternion.identity);
 
+                // Real ooze bomb — a networked projectile, so all players
+                // already see it explode (spawned once, by the caster only)
                 if (bombPrefab != null)
                 {
                     var spawnedBomb = Object.Instantiate(bombPrefab, spawnPos, Quaternion.identity);
@@ -132,22 +133,11 @@ namespace KeenCombat.Skills
             float totalBase = baseDamage.m_slash + baseDamage.m_pierce +
                                baseDamage.m_blunt + baseDamage.m_poison;
 
-            HitData hit = new HitData();
-            // Direct damage scaled by config multiplier
-            hit.m_damage.m_slash = baseDamage.m_slash * mult;
-            hit.m_damage.m_pierce = baseDamage.m_pierce * mult;
-            hit.m_damage.m_blunt = baseDamage.m_blunt * mult;
-            // Poison damage triggers vanilla DoT
-            hit.m_damage.m_poison = totalBase * mult;
-            hit.m_pushForce = 1.0f;
-            hit.m_staggerMultiplier = 0.5f;
-            hit.m_dir = Vector3.up;
-            hit.m_attacker = player.GetZDOID();
-            hit.m_point = origin;
-
             float range = Plugin.DualKnifeSpread.Value + 1.5f;
-            int mask = LayerMask.GetMask("character");
-            var cols = Physics.OverlapSphere(origin + Vector3.up, range, mask);
+            var cols = Physics.OverlapSphere(origin + Vector3.up, range, SkillMasks.Characters);
+
+            // One hit per enemy per bomb, even if it has several colliders
+            var alreadyHit = new HashSet<Character>();
 
             foreach (var col in cols)
             {
@@ -156,8 +146,22 @@ namespace KeenCombat.Skills
                 if (character == player) continue;
                 if (character.IsPlayer() && !player.IsPVPEnabled()) continue;
                 if (character.m_faction == Character.Faction.Players) continue;
+                if (!alreadyHit.Add(character)) continue;
 
+                // Fresh HitData per enemy — Valheim modifies it when applied
+                HitData hit = new HitData();
+                // Direct damage scaled by config multiplier
+                hit.m_damage.m_slash = baseDamage.m_slash * mult;
+                hit.m_damage.m_pierce = baseDamage.m_pierce * mult;
+                hit.m_damage.m_blunt = baseDamage.m_blunt * mult;
+                // Poison damage triggers vanilla DoT
+                hit.m_damage.m_poison = totalBase * mult;
+                hit.m_pushForce = 1.0f;
+                hit.m_staggerMultiplier = 0.5f;
+                hit.m_dir = Vector3.up;
+                hit.m_attacker = player.GetZDOID();
                 hit.m_point = character.transform.position;
+
                 character.Damage(hit);
             }
         }

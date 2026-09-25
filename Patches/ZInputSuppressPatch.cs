@@ -14,13 +14,37 @@ namespace KeenCombat.Patches
         // during the heavy attack, but leaves it alone during normal tapping.
         public static bool HoldingForHeavy = false;
 
-        // True while Right Trigger is held so JoyAttack can't fire vanilla
-        // heavy attack on top of our skill.
+        // Legacy flag — still set by AttackInputPatch but no longer read.
+        // RT suppression now uses the live RightTriggerReclaimed check below.
         public static bool SuppressJoyAttack = false;
 
-        // True for one frame after skill fires to suppress SecondaryAttack
-        // so vanilla doesn't fire its own heavy attack on the same press.
+        // True for one frame after skill fires.
         public static bool SkillJustFired = false;
+
+        // -------------------------------------------------------------------
+        // Live check: is RT physically pressed right now AND does the current
+        // weapon have a KeenCombat skill? Read at the exact moment vanilla
+        // asks about the button, so there's no one-frame gap. Weapons without
+        // a skill (tools, pickaxes, Spirit Caller, Red Troll) keep vanilla RT.
+        // -------------------------------------------------------------------
+        public static bool RightTriggerReclaimed
+        {
+            get
+            {
+                float rt = Plugin.RightTriggerAction?.ReadValue<float>() ?? 0f;
+                if (rt <= 0.5f) return false;
+
+                var player = Player.m_localPlayer;
+                if (player == null) return false;
+
+                var weapon = player.GetCurrentWeapon();
+                if (weapon == null) return false;
+                if (weapon.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Tool) return false;
+                if (weapon.m_shared.m_attack.m_attackAnimation.StartsWith("swing_pickaxe")) return false;
+
+                return Skills.WeaponSkillManager.GetSkillForWeapon(weapon) != null;
+            }
+        }
     }
 
     [HarmonyPatch(typeof(Player), "InAttack")]
@@ -46,6 +70,9 @@ namespace KeenCombat.Patches
     // Priority.Last. This guarantees we are the final word on __result
     // regardless of what any other mod (Config Manager, Extra Slots, etc.)
     // sets it to.
+    //
+    // RT reaches vanilla as "JoyAttack", so while RT is reclaimed for a
+    // skill, JoyAttack is blocked in all three checks (held, down, up).
     // -----------------------------------------------------------------------
     [HarmonyPatch(typeof(ZInput), nameof(ZInput.GetButton))]
     [HarmonyPriority(Priority.First)]
@@ -60,6 +87,12 @@ namespace KeenCombat.Patches
             }
 
             if ((name == "Attack" || name == "JoyAttack") && AttackInputState.HoldingForHeavy)
+            {
+                __result = false;
+                return;
+            }
+
+            if (name == "JoyAttack" && AttackInputState.RightTriggerReclaimed)
                 __result = false;
         }
     }
@@ -76,14 +109,7 @@ namespace KeenCombat.Patches
                 return;
             }
 
-            if (AttackInputState.SkillJustFired &&
-               (name == "SecondaryAttack" || name == "JoySecondaryAttack"))
-            {
-                __result = false;
-                return;
-            }
-
-            if (AttackInputState.SuppressJoyAttack && name == "JoyAttack")
+            if (name == "JoyAttack" && AttackInputState.RightTriggerReclaimed)
                 __result = false;
         }
     }
@@ -95,6 +121,12 @@ namespace KeenCombat.Patches
         static void Postfix(string name, ref bool __result)
         {
             if (name == "SecondaryAttack" || name == "JoySecondaryAttack")
+            {
+                __result = false;
+                return;
+            }
+
+            if (name == "JoyAttack" && AttackInputState.RightTriggerReclaimed)
                 __result = false;
         }
     }

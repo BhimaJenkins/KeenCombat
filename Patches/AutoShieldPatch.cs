@@ -28,9 +28,13 @@ namespace KeenCombat.Patches
         {
             if (player == null) return;
 
-            var leftItem = player.m_leftItem;
-            if (leftItem != null &&
-                leftItem.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Shield) return;
+            // Valheim 1.0 — use GetLeftItem() instead of m_leftItem
+                foreach (var invItem in player.GetInventory().GetAllItems())
+                {
+                    if (invItem.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Shield
+                        && invItem.m_equipped)
+                        return;
+                }
 
             ItemDrop.ItemData? bestShield = null;
             float bestBlock = -1f;

@@ -22,7 +22,8 @@ namespace KeenCombat.HUD
             _instance = ScriptableObject.CreateInstance<SE_KnifeStealthBuff>();
             _instance.name = StatusEffectName;
             _instance.m_name = "Stealth";
-            _instance.m_icon = LoadBuffIcon();
+            // Shared loader — finds the icon in every supported install layout
+            _instance.m_icon = Plugin.LoadEmbeddedSprite("AssassinationBuffIcon.png");
             _instance.m_startMessageType = MessageHud.MessageType.TopLeft;
             _instance.m_startMessage = "Vanished into the shadows!";
             _instance.m_stopMessageType = MessageHud.MessageType.TopLeft;
@@ -35,41 +36,6 @@ namespace KeenCombat.HUD
             }
         }
 
-        private static Sprite? LoadBuffIcon()
-        {
-            string path = System.IO.Path.Combine(
-                System.IO.Path.GetDirectoryName(
-                    System.Reflection.Assembly.GetExecutingAssembly().Location)!,
-                "icons", "AssassinationBuffIcon.png");
-
-            if (!System.IO.File.Exists(path))
-            {
-                Plugin.Log.LogWarning($"Stealth buff icon not found: {path}");
-                return null;
-            }
-
-            byte[] data = System.IO.File.ReadAllBytes(path);
-            var tex = new Texture2D(32, 32, TextureFormat.RGBA32, false);
-
-            System.Reflection.MethodInfo? loadImg = null;
-            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
-            {
-                var t = asm.GetType("UnityEngine.ImageConversion");
-                if (t == null) continue;
-                loadImg = t.GetMethod("LoadImage", new[] { typeof(Texture2D), typeof(byte[]) });
-                if (loadImg != null) break;
-            }
-
-            if (loadImg == null) return null;
-
-            loadImg.Invoke(null, new object[] { tex, data });
-            tex.Apply();
-
-            return Sprite.Create(tex,
-                new Rect(0, 0, tex.width, tex.height),
-                new Vector2(0.5f, 0.5f), 100f);
-        }
-
         public static void Apply(Player player, float duration)
         {
             if (_instance == null)
@@ -79,7 +45,7 @@ namespace KeenCombat.HUD
             }
 
             _instance.m_ttl = duration;
-            player.GetSEMan().AddStatusEffect(_instance);
+            player.GetSEMan().AddStatusEffect(_instance, true, 0, 0f);
         }
 
         public static void Remove(Player player)

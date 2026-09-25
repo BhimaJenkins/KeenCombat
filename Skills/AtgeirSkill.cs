@@ -1,4 +1,5 @@
 ﻿using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace KeenCombat.Skills
@@ -64,9 +65,8 @@ namespace KeenCombat.Skills
             player.m_runSpeed = 0f;
             player.m_turnSpeed = 0f;
 
-            var animator = player.GetComponentInChildren<Animator>();
-            var vfxPrefab = ZNetScene.instance?.GetPrefab("vfx_crossbow_lightning_fire");
-            var sfxPrefab = ZNetScene.instance?.GetPrefab("sfx_sword_swing");
+            // ZSyncAnimation syncs triggers to all players
+            var zsync = player.GetComponent<ZSyncAnimation>();
 
             for (int i = 0; i < totalHits; i++)
             {
@@ -75,28 +75,25 @@ namespace KeenCombat.Skills
                 player.transform.forward = lockedLookDir;
                 player.m_lookDir = lockedLookDir;
 
-                if (animator != null)
+                // Strike animation — synced to all players
+                if (zsync != null)
                 {
                     if (isSpear)
-                        animator.SetTrigger("spear_poke");
+                        zsync.SetTrigger("spear_poke");
                     else
-                    {
-                        int animIndex = i % 3;
-                        animator.SetTrigger($"atgeir_attack{animIndex}");
-                    }
+                        zsync.SetTrigger($"atgeir_attack{i % 3}");
                 }
 
-                if (vfxPrefab != null)
-                {
-                    Vector3 vfxPos = player.transform.position
-                                   + lockedLookDir * (1.5f * rangeMultiplier)
-                                   + Vector3.up;
-                    Object.Instantiate(vfxPrefab, vfxPos, player.transform.rotation);
-                }
+                // Lightning strike VFX — broadcast to all players
+                Vector3 vfxPos = player.transform.position
+                               + lockedLookDir * (1.5f * rangeMultiplier)
+                               + Vector3.up;
+                NetworkedEffects.BroadcastVfx("vfx_crossbow_lightning_fire",
+                    vfxPos, player.transform.rotation);
 
-                if (sfxPrefab != null)
-                    Object.Instantiate(sfxPrefab, player.transform.position,
-                                       player.transform.rotation);
+                // Swing sound — broadcast to all players
+                NetworkedEffects.BroadcastSfx("sfx_sword_swing",
+                    player.transform.position, player.transform.rotation);
 
                 ApplyHit(player, weapon, lockedLookDir, rangeMultiplier);
 
@@ -114,23 +111,16 @@ namespace KeenCombat.Skills
         private static void ApplyHit(Player player, ItemDrop.ItemData weapon,
                                       Vector3 direction, float rangeMultiplier = 1.0f)
         {
-            HitData hit = new HitData();
-            hit.m_damage = weapon.GetDamage();
-            hit.m_damage.Modify(Plugin.AtgeirSkillDamage.Value);
-            hit.m_pushForce = 1.0f;
-            hit.m_staggerMultiplier = 1.0f;
-            hit.m_dir = direction;
-            hit.m_attacker = player.GetZDOID();
-            hit.m_point = player.transform.position + direction * 2f;
-
             float range = weapon.m_shared.m_attack.m_attackRange > 0f
                 ? weapon.m_shared.m_attack.m_attackRange * rangeMultiplier
                 : 3.0f * rangeMultiplier;
 
-            int characterMask = LayerMask.GetMask("character");
             var colliders = Physics.OverlapSphere(
                 player.transform.position + direction * (range * 0.5f) + Vector3.up,
-                range * 0.5f, characterMask);
+                range * 0.5f, SkillMasks.Characters);
+
+            // One hit per enemy per strike, even if it has several colliders
+            var alreadyHit = new HashSet<Character>();
 
             foreach (var col in colliders)
             {
@@ -140,12 +130,22 @@ namespace KeenCombat.Skills
                 if (character.IsPlayer() && !player.IsPVPEnabled()) continue;
                 // Don't hit player-faction allies (Primal Rally summons)
                 if (character.m_faction == Character.Faction.Players) continue;
+                if (!alreadyHit.Add(character)) continue;
 
                 Vector3 toTarget = (character.transform.position
                                   - player.transform.position).normalized;
                 if (Vector3.Dot(direction, toTarget) < 0.3f) continue;
 
+                // Fresh HitData per enemy — Valheim modifies it when applied
+                HitData hit = new HitData();
+                hit.m_damage = weapon.GetDamage();
+                hit.m_damage.Modify(Plugin.AtgeirSkillDamage.Value);
+                hit.m_pushForce = 1.0f;
+                hit.m_staggerMultiplier = 1.0f;
+                hit.m_dir = direction;
+                hit.m_attacker = player.GetZDOID();
                 hit.m_point = character.transform.position;
+
                 character.Damage(hit);
 
                 if (Plugin.TestMode.Value && character.GetHealth() <= 0f)

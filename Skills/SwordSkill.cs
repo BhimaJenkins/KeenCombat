@@ -40,52 +40,71 @@ namespace KeenCombat.Skills
 
         private static IEnumerator BlinkRoutine(Player player, ItemDrop.ItemData weapon)
         {
-            var animator = player.GetComponentInChildren<Animator>();
-
-            // Get camera-facing blink direction
-            Vector3 blinkDir = GameCamera.instance != null
-                ? new Vector3(GameCamera.instance.transform.forward.x, 0f,
-                              GameCamera.instance.transform.forward.z).normalized
+            // 1. Calculate horizontal direction based on camera forward angle
+            Vector3 cameraForward = GameCamera.instance != null
+                ? GameCamera.instance.transform.forward
                 : player.transform.forward;
+
+            // Strip vertical pitch component to keep movement strictly horizontal
+            Vector3 blinkDir = new Vector3(cameraForward.x, 0f, cameraForward.z).normalized;
+            if (blinkDir == Vector3.zero)
+                blinkDir = player.transform.forward;
 
             Vector3 startPos = player.transform.position;
             float maxDist = Plugin.SwordBlinkDistance.Value;
 
-            // Raycast to find blink end point — stop at walls
+            // 2. Obstacle Detection
             int wallMask = LayerMask.GetMask("Default", "static_solid", "terrain", "piece");
             float blinkDist = maxDist;
+
             if (Physics.Raycast(startPos + Vector3.up, blinkDir, out RaycastHit wallHit,
                                 maxDist, wallMask))
-                blinkDist = wallHit.distance - 0.5f;
+                blinkDist = Mathf.Max(0.5f, wallHit.distance - 0.5f);
 
-            Vector3 endPos = startPos + blinkDir * blinkDist + Vector3.up * 0.5f;
+            Vector3 rawEndPos = startPos + (blinkDir * blinkDist);
 
-            // Play blink animation
-            if (animator != null)
+            // 3. Terrain Height Snapping
+            Vector3 endPos = rawEndPos;
+            if (ZoneSystem.instance != null &&
+                ZoneSystem.instance.GetGroundHeight(rawEndPos, out float groundHeight))
             {
-                animator.speed = Plugin.SwordAnimSpeed.Value;
-                animator.Play("atgeir_secondary", 0, 0.6f);
+                endPos.y = groundHeight;
+            }
+            else if (Physics.Raycast(rawEndPos + Vector3.up * 5f, Vector3.down,
+                                     out RaycastHit groundHit, 10f, wallMask))
+            {
+                endPos.y = groundHit.point.y;
             }
 
-            // Spawn Eikthyr shockwave VFX at start
-            var vfxPrefab = ZNetScene.instance?.GetPrefab("fx_eikthyr_forwardshockwave");
-            if (vfxPrefab != null)
-                Object.Instantiate(vfxPrefab, startPos + Vector3.up,
-                                   Quaternion.LookRotation(blinkDir));
+            // 4. Play sword lunge animation on all clients — speed up, then
+            //    jump past the wind-up straight into the forward thrust
+            NetworkedEffects.BroadcastAnimatorSpeed(player, 2.5f);
+            NetworkedEffects.BroadcastAnimationPlay(player, "sword_secondary", 0, 0.45f);
 
-            // Teleport player to end position
+            // 5. Spawn Eikthyr shockwave VFX — broadcast to all clients
+            NetworkedEffects.BroadcastVfx("fx_eikthyr_forwardshockwave",
+                startPos + Vector3.up,
+                Quaternion.LookRotation(blinkDir));
+
+            // 6. Teleport player instantly (local only — position syncs via ZNet)
+            if (player.m_body != null)
+            {
+                player.m_body.linearVelocity = Vector3.zero;
+                player.m_body.angularVelocity = Vector3.zero;
+                player.m_body.position = endPos;
+            }
+
             player.transform.position = endPos;
-            player.transform.forward = blinkDir;
+            player.transform.rotation = Quaternion.LookRotation(blinkDir);
+            player.m_maxAirAltitude = endPos.y;
 
-            yield return new WaitForSeconds(0.1f);
-
-            // Apply capsule hit along blink path
+            // 7. Apply damage along the travel path
             ApplyBlinkHit(player, weapon, startPos, endPos, blinkDir);
 
             yield return new WaitForSeconds(0.25f);
 
-            if (animator != null)
-                animator.speed = 1f;
+            // Restore animator speed on all clients
+            NetworkedEffects.BroadcastAnimatorSpeed(player, 1f);
         }
 
         private static void ApplyBlinkHit(Player player, ItemDrop.ItemData weapon,
@@ -118,7 +137,6 @@ namespace KeenCombat.Skills
                 if (character == null) continue;
                 if (character == player) continue;
                 if (character.IsPlayer() && !player.IsPVPEnabled()) continue;
-                // Don't hit player-faction allies (Primal Rally summons)
                 if (character.m_faction == Character.Faction.Players) continue;
 
                 hit.m_point = character.transform.position;

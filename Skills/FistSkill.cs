@@ -1,4 +1,5 @@
 ﻿using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace KeenCombat.Skills
@@ -53,12 +54,20 @@ namespace KeenCombat.Skills
         public void OnHold(Player player, ItemDrop.ItemData weapon, float heldDuration) { }
         public void OnRelease(Player player, ItemDrop.ItemData weapon, float heldDuration) { }
 
+        private static bool IsGone(Player? player) => player == null || player.IsDead();
+
+        // Restores normal animation speed on all clients if the player still exists
+        private static void RestoreSpeed(Player? player)
+        {
+            if (player != null)
+                NetworkedEffects.BroadcastAnimatorSpeed(player, 1f);
+        }
+
         private static IEnumerator OnslaughtRoutine(Player player, ItemDrop.ItemData weapon)
         {
-            if (player == null || player.IsDead()) yield break;
+            if (IsGone(player)) yield break;
 
-            var animator = player.GetComponentInChildren<Animator>();
-            if (animator == null) yield break;
+            var zsync = player.GetComponent<ZSyncAnimation>();
 
             // Lock facing to camera at skill start
             Vector3 attackDir = GameCamera.instance != null
@@ -68,56 +77,41 @@ namespace KeenCombat.Skills
 
             player.transform.rotation = Quaternion.LookRotation(attackDir);
 
-            // Find right hand bone for VFX spawn position
+            // Right hand bone for VFX spawn position
             Transform? rightHand = FindBone(player, "RightHand");
 
             float totalDistance = 2.0f;
             int comboHits = 4;
             float hitInterval = 0.4f;
 
-            // Load VFX/SFX prefabs
-            var comboVfx = ZNetScene.instance?.GetPrefab(ComboVfxName);
-            var comboSfx = ZNetScene.instance?.GetPrefab(ComboSfxName);
-            var finisherVfx = ZNetScene.instance?.GetPrefab(FinisherVfxName);
-            var finisherSfx = ZNetScene.instance?.GetPrefab(FinisherSfxName);
-
-            if (comboVfx == null)
-                Plugin.Log.LogWarning($"FistSkill: '{ComboVfxName}' not found!");
-            if (comboSfx == null)
-                Plugin.Log.LogWarning($"FistSkill: '{ComboSfxName}' not found!");
-            if (finisherVfx == null)
-                Plugin.Log.LogWarning($"FistSkill: '{FinisherVfxName}' not found!");
-            if (finisherSfx == null)
-                Plugin.Log.LogWarning($"FistSkill: '{FinisherSfxName}' not found!");
-
             // ---------------------------------------------------------------
-            // Phase 1 — dualaxes combo at 1.2x speed
+            // Phase 1 — dualaxes combo at 1.2x speed (all clients)
             // ---------------------------------------------------------------
-            animator.speed = 1.2f;
+            NetworkedEffects.BroadcastAnimatorSpeed(player, 1.2f);
 
             yield return new WaitForSeconds(0.05f);
 
             for (int i = 0; i < comboHits; i++)
             {
-                if (player == null || player.IsDead()) yield break;
+                if (IsGone(player)) { RestoreSpeed(player); yield break; }
 
                 player.transform.rotation = Quaternion.LookRotation(attackDir);
 
-                animator.SetTrigger($"dualaxes{i}");
+                // Combo punch — synced to all players by ZSyncAnimation
+                if (zsync != null)
+                    zsync.SetTrigger($"dualaxes{i}");
 
-                // Spawn combo VFX + SFX at right hand
+                // Combo VFX + SFX at the right hand — broadcast to all players
                 Vector3 fistPos = rightHand != null
                     ? rightHand.position
                     : player.transform.position + attackDir * 0.8f + Vector3.up * 1.2f;
 
-                if (comboVfx != null)
-                    Object.Instantiate(comboVfx, fistPos,
-                                       Quaternion.LookRotation(attackDir));
-                if (comboSfx != null)
-                    Object.Instantiate(comboSfx, fistPos,
-                                       player.transform.rotation);
+                NetworkedEffects.BroadcastVfx(ComboVfxName, fistPos,
+                    Quaternion.LookRotation(attackDir));
+                NetworkedEffects.BroadcastSfx(ComboSfxName, fistPos,
+                    player.transform.rotation);
 
-                // Apply cone damage
+                // Cone damage
                 ApplyConeHit(player, weapon, attackDir,
                              Plugin.FistSkillDamage.Value * 0.5f,
                              60f, 3.0f);
@@ -133,41 +127,36 @@ namespace KeenCombat.Skills
             yield return new WaitForSeconds(0.25f);
 
             // ---------------------------------------------------------------
-            // Phase 2 — mace_secondary finisher at normalized 0.5f
+            // Phase 2 — mace_secondary finisher at normalized 0.5 (all clients)
             // ---------------------------------------------------------------
-            if (player == null || player.IsDead()) yield break;
+            if (IsGone(player)) { RestoreSpeed(player); yield break; }
 
             player.transform.rotation = Quaternion.LookRotation(attackDir);
 
-            animator.speed = 1.0f;
-            animator.Play("mace_secondary", 0, 0.5f);
+            NetworkedEffects.BroadcastAnimatorSpeed(player, 1f);
+            NetworkedEffects.BroadcastAnimationPlay(player, "mace_secondary", 0, 0.5f);
 
             // Move remaining 30% during finisher
             player.transform.position += attackDir * (totalDistance * 0.3f);
 
-            // Spawn finisher VFX + SFX at right hand
+            // Finisher VFX + SFX at the right hand — broadcast to all players
             Vector3 finisherFistPos = rightHand != null
                 ? rightHand.position
                 : player.transform.position + attackDir * 0.8f + Vector3.up * 1.2f;
 
-            if (finisherVfx != null)
-                Object.Instantiate(finisherVfx, finisherFistPos,
-                                   Quaternion.LookRotation(attackDir));
-            if (finisherSfx != null)
-                Object.Instantiate(finisherSfx, finisherFistPos,
-                                   player.transform.rotation);
+            NetworkedEffects.BroadcastVfx(FinisherVfxName, finisherFistPos,
+                Quaternion.LookRotation(attackDir));
+            NetworkedEffects.BroadcastSfx(FinisherSfxName, finisherFistPos,
+                player.transform.rotation);
 
             yield return new WaitForSeconds(0.25f);
 
-            // Apply rectangle finisher damage
+            if (IsGone(player)) yield break;
+
+            // Rectangle finisher damage
             ApplyRectangleHit(player, weapon, attackDir,
                               Plugin.FistSkillDamage.Value * 1.0f,
                               10.0f);
-
-            yield return new WaitForSeconds(0.4f);
-
-            if (animator != null)
-                animator.speed = 1f;
         }
 
         // -----------------------------------------------------------------------
@@ -181,40 +170,58 @@ namespace KeenCombat.Skills
             return null;
         }
 
+        private static bool IsValidTarget(Player player, Character? character)
+        {
+            if (character == null) return false;
+            if (character == player) return false;
+            if (character.IsPlayer() && !player.IsPVPEnabled()) return false;
+            if (character.m_faction == Character.Faction.Players) return false;
+            return true;
+        }
+
+        private static void DamageTarget(Player player, ItemDrop.ItemData weapon,
+                                         Character character, Vector3 direction,
+                                         float damageMultiplier, float push, float stagger)
+        {
+            // Fresh HitData per enemy — Valheim modifies it when applied
+            HitData hit = new HitData();
+            hit.m_damage = weapon.GetDamage();
+            hit.m_damage.Modify(damageMultiplier);
+            hit.m_pushForce = push;
+            hit.m_staggerMultiplier = stagger;
+            hit.m_dir = direction;
+            hit.m_attacker = player.GetZDOID();
+            hit.m_point = character.transform.position;
+
+            character.Damage(hit);
+
+            if (Plugin.TestMode.Value && character.GetHealth() <= 0f)
+                character.SetHealth(1f);
+        }
+
         private static void ApplyConeHit(Player player, ItemDrop.ItemData weapon,
                                           Vector3 direction, float damageMultiplier,
                                           float coneAngle, float range)
         {
-            HitData hit = new HitData();
-            hit.m_damage = weapon.GetDamage();
-            hit.m_damage.Modify(damageMultiplier);
-            hit.m_pushForce = 2.0f;
-            hit.m_staggerMultiplier = 1.0f;
-            hit.m_dir = direction;
-            hit.m_attacker = player.GetZDOID();
-
-            int mask = LayerMask.GetMask("character");
             var cols = Physics.OverlapSphere(
-                player.transform.position + Vector3.up + direction, range, mask);
+                player.transform.position + Vector3.up + direction, range, SkillMasks.Characters);
+
+            // One hit per enemy, even if it has several colliders
+            var alreadyHit = new HashSet<Character>();
 
             foreach (var col in cols)
             {
                 var character = col.GetComponentInParent<Character>();
-                if (character == null) continue;
-                if (character == player) continue;
-                if (character.IsPlayer() && !player.IsPVPEnabled()) continue;
-                if (character.m_faction == Character.Faction.Players) continue;
+                if (!IsValidTarget(player, character)) continue;
 
-                Vector3 toTarget = (character.transform.position
+                Vector3 toTarget = (character!.transform.position
                                   - player.transform.position).normalized;
-                float angle = Vector3.Angle(direction, toTarget);
-                if (angle > coneAngle * 0.5f) continue;
+                if (Vector3.Angle(direction, toTarget) > coneAngle * 0.5f) continue;
 
-                hit.m_point = character.transform.position;
-                character.Damage(hit);
+                if (!alreadyHit.Add(character)) continue;
 
-                if (Plugin.TestMode.Value && character.GetHealth() <= 0f)
-                    character.SetHealth(1f);
+                DamageTarget(player, weapon, character, direction,
+                             damageMultiplier, 2.0f, 1.0f);
             }
         }
 
@@ -222,14 +229,6 @@ namespace KeenCombat.Skills
                                                Vector3 direction, float damageMultiplier,
                                                float depth)
         {
-            HitData hit = new HitData();
-            hit.m_damage = weapon.GetDamage();
-            hit.m_damage.Modify(damageMultiplier);
-            hit.m_pushForce = 5.0f;
-            hit.m_staggerMultiplier = 3.0f;
-            hit.m_dir = direction;
-            hit.m_attacker = player.GetZDOID();
-
             float playerHeight = 1.8f;
             float rectHeight = playerHeight * 1.5f;
             float rectWidth = 2.0f;
@@ -239,26 +238,23 @@ namespace KeenCombat.Skills
                               + Vector3.up * (rectHeight * 0.5f);
 
             Vector3 halfExtents = new Vector3(rectWidth * 0.5f,
-                                                 rectHeight * 0.5f,
-                                                 depth * 0.5f);
+                                              rectHeight * 0.5f,
+                                              depth * 0.5f);
             Quaternion boxRot = Quaternion.LookRotation(direction);
 
-            int mask = LayerMask.GetMask("character");
-            var cols = Physics.OverlapBox(boxCenter, halfExtents, boxRot, mask);
+            var cols = Physics.OverlapBox(boxCenter, halfExtents, boxRot, SkillMasks.Characters);
+
+            // One hit per enemy, even if it has several colliders
+            var alreadyHit = new HashSet<Character>();
 
             foreach (var col in cols)
             {
                 var character = col.GetComponentInParent<Character>();
-                if (character == null) continue;
-                if (character == player) continue;
-                if (character.IsPlayer() && !player.IsPVPEnabled()) continue;
-                if (character.m_faction == Character.Faction.Players) continue;
+                if (!IsValidTarget(player, character)) continue;
+                if (!alreadyHit.Add(character!)) continue;
 
-                hit.m_point = character.transform.position;
-                character.Damage(hit);
-
-                if (Plugin.TestMode.Value && character.GetHealth() <= 0f)
-                    character.SetHealth(1f);
+                DamageTarget(player, weapon, character!, direction,
+                             damageMultiplier, 5.0f, 3.0f);
             }
         }
     }

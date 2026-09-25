@@ -40,12 +40,10 @@ namespace KeenCombat.Skills
 
             player.StartCoroutine(SlowAndRestore(player, 1.5f));
 
-            // Spawn VFX at player position
-            var vfxPrefab = ZNetScene.instance?.GetPrefab("fx_guardstone_activate");
-            if (vfxPrefab != null)
-                Object.Instantiate(vfxPrefab, player.transform.position, player.transform.rotation);
-            else
-                Plugin.Log.LogWarning("MaceSkill: fx_guardstone_activate not found.");
+            // Spawn VFX at player position — broadcast to all players
+            NetworkedEffects.BroadcastVfx("fx_guardstone_activate",
+                player.transform.position,
+                player.transform.rotation);
 
             // Apply Bulwark buff
             HUD.SE_MaceSkillBuff.Apply(player,
