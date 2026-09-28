@@ -51,37 +51,52 @@ namespace KeenCombat.Patches
             if (currentWeapon.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Tool) return;
             if (currentWeapon.m_shared.m_attack.m_attackAnimation.StartsWith("swing_pickaxe")) return;
             if (currentWeapon.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Bow) return;
-            
+
             // Skip hold-to-heavy for staves — they use normal attack for their abilities
             if (currentWeapon.m_shared.m_attack.m_attackAnimation.StartsWith("staff_")) return;
 
-            // ---------------------------------------------------------------
-            // Mouse hold-to-heavy — independent state
-            // ---------------------------------------------------------------
-            bool mouseHeld = Input.GetMouseButton(0);
-            bool mouseUp = Input.GetMouseButtonUp(0);
-            bool mouseDown = Input.GetMouseButtonDown(0);
+            float holdThreshold = GetHoldThreshold(currentWeapon);
 
-            if (mouseDown)
+            // ---------------------------------------------------------------
+            // Mouse hold-to-heavy — independent state.
+            // Skipped when mouse & keyboard players chose Valheim's own
+            // heavy attack button (KeyboardHeavyAttack = Vanilla).
+            // ---------------------------------------------------------------
+            if (!AttackInputState.KeyboardVanillaHeavy)
             {
-                _mousePressTime = Time.time;
-                _mouseHeavyFired = false;
-                AttackInputState.HoldingForHeavy = false;
-            }
+                bool mouseHeld = Input.GetMouseButton(0);
+                bool mouseUp = Input.GetMouseButtonUp(0);
+                bool mouseDown = Input.GetMouseButtonDown(0);
 
-            if (mouseHeld && !_mouseHeavyFired && _mousePressTime > 0f)
-            {
-                float held = Time.time - _mousePressTime;
-                if (held >= Plugin.HoldThreshold.Value)
+                if (mouseDown)
                 {
-                    _mouseHeavyFired = true;
-                    AttackInputState.HoldingForHeavy = true;
-                    FireHeavy(__instance);
+                    _mousePressTime = Time.time;
+                    _mouseHeavyFired = false;
+                    AttackInputState.HoldingForHeavy = false;
+                }
+
+                if (mouseHeld && !_mouseHeavyFired && _mousePressTime > 0f)
+                {
+                    float held = Time.time - _mousePressTime;
+                    if (held >= holdThreshold)
+                    {
+                        _mouseHeavyFired = true;
+                        AttackInputState.HoldingForHeavy = true;
+                        FireHeavy(__instance);
+                    }
+                }
+
+                if (mouseUp)
+                {
+                    _mousePressTime = 0f;
+                    _mouseHeavyFired = false;
+                    if (!_ctrlHeavyFired)
+                        AttackInputState.HoldingForHeavy = false;
                 }
             }
-
-            if (mouseUp)
+            else if (_mouseHeavyFired || _mousePressTime > 0f)
             {
+                // Setting switched to Vanilla mid-hold — clear mouse state
                 _mousePressTime = 0f;
                 _mouseHeavyFired = false;
                 if (!_ctrlHeavyFired)
@@ -89,7 +104,7 @@ namespace KeenCombat.Patches
             }
 
             // ---------------------------------------------------------------
-            // Controller hold-to-heavy — independent state
+            // Controller hold-to-heavy — independent state (always active)
             // ---------------------------------------------------------------
             bool ctrlHeld = Input.GetKey(KeyCode.JoystickButton5);
             bool ctrlUp = Input.GetKeyUp(KeyCode.JoystickButton5);
@@ -105,7 +120,7 @@ namespace KeenCombat.Patches
             if (ctrlHeld && !_ctrlHeavyFired && _ctrlPressTime > 0f)
             {
                 float held = Time.time - _ctrlPressTime;
-                if (held >= Plugin.HoldThreshold.Value)
+                if (held >= holdThreshold)
                 {
                     _ctrlHeavyFired = true;
                     AttackInputState.HoldingForHeavy = true;
@@ -119,6 +134,36 @@ namespace KeenCombat.Patches
                 _ctrlHeavyFired = false;
                 if (!_mouseHeavyFired)
                     AttackInputState.HoldingForHeavy = false;
+            }
+        }
+
+        // -------------------------------------------------------------------
+        // Per-weapon-group hold time (Hold To Heavy Timing config section)
+        // -------------------------------------------------------------------
+        private static float GetHoldThreshold(ItemDrop.ItemData weapon)
+        {
+            var shared = weapon.m_shared;
+            var skillType = shared.m_skillType;
+            string anim = shared.m_attack.m_attackAnimation;
+
+            // Two-handed maces/sledges first — their combo uses the greatsword animation
+            if (shared.m_itemType == ItemDrop.ItemData.ItemType.TwoHandedWeapon &&
+                skillType == global::Skills.SkillType.Clubs)
+                return Plugin.HoldTwoHandedMace.Value;
+
+            // 2H swords and 2H axes
+            if (anim.StartsWith("greatsword") || anim.StartsWith("battleaxe"))
+                return Plugin.HoldGreatsword.Value;
+
+            switch (skillType)
+            {
+                case global::Skills.SkillType.Axes: return Plugin.HoldAxe.Value;     // axes + dual axes
+                case global::Skills.SkillType.Clubs: return Plugin.HoldMace.Value;
+                case global::Skills.SkillType.Swords: return Plugin.HoldSword.Value;
+                case global::Skills.SkillType.Spears: return Plugin.HoldSpear.Value;
+                case global::Skills.SkillType.Polearms: return Plugin.HoldAtgeir.Value;
+                case global::Skills.SkillType.Knives: return Plugin.HoldKnife.Value;   // knives + dual knives
+                default: return Plugin.HoldThreshold.Value;
             }
         }
 
@@ -157,9 +202,11 @@ namespace KeenCombat.Patches
             var skill = Skills.WeaponSkillManager.GetSkillForWeapon(currentWeapon);
             if (skill == null) return;
 
-            bool mouseSkillDown = Input.GetKeyDown(Plugin.SkillKey.Value);
-            bool mouseSkillHeld = Input.GetKey(Plugin.SkillKey.Value);
-            bool mouseSkillUp = Input.GetKeyUp(Plugin.SkillKey.Value);
+            // Rebindable mouse & keyboard skill key
+            var skillKey = Plugin.SkillKeybind.Value;
+            bool mouseSkillDown = skillKey.IsDown();
+            bool mouseSkillHeld = skillKey.IsPressed();
+            bool mouseSkillUp = skillKey.IsUp();
 
             float rtValue = Plugin.RightTriggerAction?.ReadValue<float>() ?? 0f;
             bool rtHeld = rtValue > 0.5f;
