@@ -9,12 +9,19 @@ using UnityEngine.Networking;
 
 namespace KeenCombat
 {
+    /// <summary>How mouse & keyboard players perform heavy attacks.</summary>
+    public enum KeyboardHeavyAttackMode
+    {
+        HoldAttack,   // hold the attack button
+        Vanilla       // Valheim's own heavy attack button (default)
+    }
+
     [BepInPlugin(PluginGUID, PluginName, PluginVersion)]
     public class Plugin : BaseUnityPlugin
     {
         public const string PluginGUID = "Bhimas.KeenCombat";
         public const string PluginName = "KeenCombat";
-        public const string PluginVersion = "1.0.1";
+        public const string PluginVersion = "1.1.0";
 
         internal static ManualLogSource Log = null!;
         internal static Plugin instance = null!;
@@ -23,7 +30,19 @@ namespace KeenCombat
         internal static ConfigEntry<bool> ExcludeAxe = null!;
         internal static ConfigEntry<bool> ExcludeKnife = null!;
         internal static ConfigEntry<float> HoldThreshold = null!;
-        internal static ConfigEntry<KeyCode> SkillKey = null!;
+        internal static ConfigEntry<KeyCode> SkillKey = null!; // legacy, unused for input
+        internal static ConfigEntry<KeyboardShortcut> SkillKeybind = null!;
+        internal static ConfigEntry<KeyboardHeavyAttackMode> KeyboardHeavyMode = null!;
+
+        // Hold To Heavy Timing — per weapon group (HoldThreshold is the default)
+        internal static ConfigEntry<float> HoldAxe = null!;
+        internal static ConfigEntry<float> HoldMace = null!;
+        internal static ConfigEntry<float> HoldSword = null!;
+        internal static ConfigEntry<float> HoldSpear = null!;
+        internal static ConfigEntry<float> HoldAtgeir = null!;
+        internal static ConfigEntry<float> HoldTwoHandedMace = null!;
+        internal static ConfigEntry<float> HoldKnife = null!;
+        internal static ConfigEntry<float> HoldGreatsword = null!;
         internal static ConfigEntry<float> SkillWidgetX = null!;
         internal static ConfigEntry<float> SkillWidgetY = null!;
 
@@ -217,10 +236,36 @@ namespace KeenCombat
             ExcludeKnife = Config.Bind("Shield", "ExcludeKnife", true,
                 "Don't auto-equip a shield when equipping a knife or dual knife.");
 
-            HoldThreshold = Config.Bind("Input", "HoldThreshold", 0.25f,
-                new ConfigDescription("Seconds to hold Attack before triggering heavy attack.", null, hidden));
+            HoldThreshold = Config.Bind("Hold To Heavy Timing", "Default", 0.25f,
+                "Seconds to hold Attack before a heavy attack, for weapons without their own setting " +
+                "below (e.g. fist weapons). Applies to controller, and to mouse & keyboard when " +
+                "KeyboardHeavyAttack = HoldAttack.");
+            HoldAxe = Config.Bind("Hold To Heavy Timing", "Axe", 0.2f,
+                "Hold time for axes and dual axes.");
+            HoldMace = Config.Bind("Hold To Heavy Timing", "Mace", 0.2f,
+                "Hold time for one-handed maces.");
+            HoldSword = Config.Bind("Hold To Heavy Timing", "Sword", 0.2f,
+                "Hold time for one-handed swords.");
+            HoldSpear = Config.Bind("Hold To Heavy Timing", "Spear", 0.15f,
+                "Hold time for spears.");
+            HoldAtgeir = Config.Bind("Hold To Heavy Timing", "Atgeir", 0.15f,
+                "Hold time for atgeirs.");
+            HoldTwoHandedMace = Config.Bind("Hold To Heavy Timing", "TwoHandedMace", 0.15f,
+                "Hold time for two-handed maces and sledges.");
+            HoldKnife = Config.Bind("Hold To Heavy Timing", "Knife", 0.15f,
+                "Hold time for knives and dual knives.");
+            HoldGreatsword = Config.Bind("Hold To Heavy Timing", "Greatsword", 0.2f,
+                "Hold time for two-handed swords and two-handed axes.");
             SkillKey = Config.Bind("Input", "SkillKey", KeyCode.Mouse2,
-                new ConfigDescription("Key to activate the equipped weapon's special skill.", null, hidden));
+                new ConfigDescription("Legacy setting — replaced by SkillKeybind.", null, hidden));
+            SkillKeybind = Config.Bind("Input", "SkillKeybind", new KeyboardShortcut(KeyCode.Z),
+                "Mouse & keyboard key for the equipped weapon's KeenCombat skill. " +
+                "Controller always uses Right Trigger.");
+            KeyboardHeavyMode = Config.Bind("Input", "KeyboardHeavyAttack", KeyboardHeavyAttackMode.Vanilla,
+                "How mouse & keyboard players heavy attack. " +
+                "HoldAttack = hold the attack button. " +
+                "Vanilla = Valheim's own heavy attack button (middle mouse by default). " +
+                "Controller always uses hold-to-heavy.");
 
             // Sword Blink Strike
             SwordSkillCooldown = Config.Bind("Sword Blink Strike", "Cooldown", 15f,
