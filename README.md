@@ -8,13 +8,22 @@
 
 ![How does this mod work?](https://raw.githubusercontent.com/BhimaJenkins/KeenCombat/main/docs/images/how-it-works.jpg)
 
-**How does this mod work?**
-Since we needed another button for controller, this mod moves the Heavy Attack from its default button to a press and hold of the normal attack. This frees up the old Heavy Attack button for these unique skills!
+## How does this mod work?
 
-**Press Middle Mouse Button (or Right Trigger on controller) to activate your equipped weapon's unique skill!**
+**UPDATE: Keyboard and Mouse Users can rebind the Keen Combat skill (using a configuration manager)!!**
+
+Every weapon gets a unique skill, activated with its own button:
+
+- **Mouse & keyboard:** Left click attacks, middle mouse is your heavy attack, and **Z** activates your KeenCombat skill. Both the skill key and the heavy attack style can be changed in the config.
+
+- **Controller:** Since controllers have no spare button, the heavy attack moves to a press and hold of the normal attack, and **Right Trigger** activates your KeenCombat skill.
 
 **Who is this mod for?**
 Those looking to put a bit more action-combat into their Valheim experience. This mod is designed for players looking to add a new, unique take on Valheim's combat. Spend more time playing and less time preparing!
+
+![](https://raw.githubusercontent.com/BhimaJenkins/KeenCombat/main/docs/images/Sanctuary2.gif)
+
+*Sanctuary Skill*
 
 ---
 
@@ -41,6 +50,7 @@ Those looking to put a bit more action-combat into their Valheim experience. Thi
 ![](https://raw.githubusercontent.com/BhimaJenkins/KeenCombat/main/icons/EarthquakeIcon.png) **Earthquake (2H Mace):** Slam the ground and send four shockwaves rippling forward in sequence, dealing heavy damage to everything in their path.
 
 ![](https://raw.githubusercontent.com/BhimaJenkins/KeenCombat/main/icons/PrimalRallyIcon.png) **Primal Rally (Bow):** Call a wild beast to fight by your side. The creature summoned depends on your bow. The beast follows you, attacks your enemies, and despawns after one minute.
+
 
 | Bow | Summon |
 |---|---|
@@ -144,8 +154,9 @@ Staff skills cost **Eitr** instead of using a cooldown. Blood Magic skills also 
 **Manual install:**
 
 - Install BepInExPack Valheim
-- Extract the KeenCombat folder into your `BepInEx/plugins/` directory
-- Your directory should look like this: `BepInEx/plugins/KeenCombat` — and inside KeenCombat you should have these 3 things: `KeenCombat.dll`, the `audio` folder and the `icons` folder
+- Create a folder named `KeenCombat` inside `BepInEx/plugins/`
+- Extract the zip's contents into that `KeenCombat` folder
+- Your `KeenCombat` folder should contain `KeenCombat.dll`, the `audio` folder and the `icons` folder (the other files, like `manifest.json`, are only used by mod managers and are harmless)
 - Launch the game!
 
 ---

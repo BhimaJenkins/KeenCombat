@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0 — Controls Update
+
+### Added
+
+- **Rebindable skill key** for mouse & keyboard (`SkillKeybind` in the Input section)
+- **Vanilla heavy attacks for mouse & keyboard** — choose between Valheim's own heavy attack button or hold-to-heavy (`KeyboardHeavyAttack` in the Input section)
+- **Per-weapon hold timing** — tune how long you hold the attack button for a heavy attack, per weapon type (new Hold To Heavy Timing section)
+
+### Changed
+
+- **New mouse & keyboard defaults:** left click is your normal attack, middle mouse is Valheim's heavy attack, and **Z** activates your KeenCombat skill. Prefer the old controls? Set `KeyboardHeavyAttack` to `HoldAttack` and `SkillKeybind` to middle mouse.
+- Controller controls are unchanged: Right Trigger for skills, hold attack for heavy attacks.
+
+Fixed
+- Primal Rally and Charred Requiem summons attacking player-planted crops
+
 ## 1.0.1
 
 ### Fixed

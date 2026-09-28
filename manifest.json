@@ -1,0 +1,9 @@
+{
+  "name": "KeenCombat",
+  "version_number": "1.1.0",
+  "website_url": "https://github.com/BhimaJenkins/KeenCombat",
+  "description": "Adds a unique skill to every martial weapon and magic staff, with custom VFX, sounds, and full multiplayer sync. Updated for Deep North!",
+  "dependencies": [
+    "denikson-BepInExPack_Valheim-5.4.2350"
+  ]
+}
