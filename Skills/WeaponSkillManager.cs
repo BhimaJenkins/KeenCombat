@@ -35,6 +35,17 @@ namespace KeenCombat.Skills
             string itemName = weapon.m_shared.m_name;
 
             // ---------------------------------------------------------------
+            // Weapons only. Valheim gives every item a skill type, and the
+            // default is Swords — so without this check, tankards, stones
+            // and other non-weapons were treated as swords (Blink Strike).
+            // ---------------------------------------------------------------
+            if (itemType != ItemDrop.ItemData.ItemType.OneHandedWeapon &&
+                itemType != ItemDrop.ItemData.ItemType.TwoHandedWeapon &&
+                itemType != ItemDrop.ItemData.ItemType.TwoHandedWeaponLeft &&
+                itemType != ItemDrop.ItemData.ItemType.Bow)
+                return null;
+
+            // ---------------------------------------------------------------
             // Staff skills — routed by item name FIRST
             // ---------------------------------------------------------------
             if (anim.StartsWith("staff_"))

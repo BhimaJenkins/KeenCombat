@@ -63,22 +63,30 @@ namespace KeenCombat.Skills
                 NetworkedEffects.BroadcastAnimatorSpeed(player, 1f);
         }
 
+        // Current aim: camera direction flattened, so the player can steer
+        // every swing toward their target
+        private static Vector3 CurrentAimDir(Player player)
+        {
+            if (GameCamera.instance != null)
+            {
+                var f = GameCamera.instance.transform.forward;
+                var flat = new Vector3(f.x, 0f, f.z);
+                if (flat.sqrMagnitude > 0.001f) return flat.normalized;
+            }
+            return player.transform.forward;
+        }
+
         private static IEnumerator OnslaughtRoutine(Player player, ItemDrop.ItemData weapon)
         {
             if (IsGone(player)) yield break;
 
             var zsync = player.GetComponent<ZSyncAnimation>();
 
-            // Lock facing to camera at skill start
-            Vector3 attackDir = GameCamera.instance != null
-                ? new Vector3(GameCamera.instance.transform.forward.x, 0f,
-                              GameCamera.instance.transform.forward.z).normalized
-                : player.transform.forward;
-
-            player.transform.rotation = Quaternion.LookRotation(attackDir);
-
             // Right hand bone for VFX spawn position
             Transform? rightHand = FindBone(player, "RightHand");
+
+            // One-handed sword reach and arc
+            var (range, angle) = GetSwordHitbox();
 
             float totalDistance = 2.0f;
             int comboHits = 4;
@@ -95,6 +103,8 @@ namespace KeenCombat.Skills
             {
                 if (IsGone(player)) { RestoreSpeed(player); yield break; }
 
+                // Re-aim every swing so turning toward an enemy mid-combo connects
+                Vector3 attackDir = CurrentAimDir(player);
                 player.transform.rotation = Quaternion.LookRotation(attackDir);
 
                 // Combo punch — synced to all players by ZSyncAnimation
@@ -111,10 +121,10 @@ namespace KeenCombat.Skills
                 NetworkedEffects.BroadcastSfx(ComboSfxName, fistPos,
                     player.transform.rotation);
 
-                // Cone damage
-                ApplyConeHit(player, weapon, attackDir,
-                             Plugin.FistSkillDamage.Value * 0.5f,
-                             60f, 3.0f);
+                // Sword-sized arc in front of the player
+                ApplyArcHit(player, weapon, attackDir,
+                            Plugin.FistSkillDamage.Value * 0.5f,
+                            angle, range);
 
                 // Move forward — 70% of total distance spread over combo
                 float movePerHit = (totalDistance * 0.7f) / comboHits;
@@ -131,21 +141,22 @@ namespace KeenCombat.Skills
             // ---------------------------------------------------------------
             if (IsGone(player)) { RestoreSpeed(player); yield break; }
 
-            player.transform.rotation = Quaternion.LookRotation(attackDir);
+            Vector3 finisherDir = CurrentAimDir(player);
+            player.transform.rotation = Quaternion.LookRotation(finisherDir);
 
             NetworkedEffects.BroadcastAnimatorSpeed(player, 1f);
             NetworkedEffects.BroadcastAnimationPlay(player, "mace_secondary", 0, 0.5f);
 
             // Move remaining 30% during finisher
-            player.transform.position += attackDir * (totalDistance * 0.3f);
+            player.transform.position += finisherDir * (totalDistance * 0.3f);
 
             // Finisher VFX + SFX at the right hand — broadcast to all players
             Vector3 finisherFistPos = rightHand != null
                 ? rightHand.position
-                : player.transform.position + attackDir * 0.8f + Vector3.up * 1.2f;
+                : player.transform.position + finisherDir * 0.8f + Vector3.up * 1.2f;
 
             NetworkedEffects.BroadcastVfx(FinisherVfxName, finisherFistPos,
-                Quaternion.LookRotation(attackDir));
+                Quaternion.LookRotation(finisherDir));
             NetworkedEffects.BroadcastSfx(FinisherSfxName, finisherFistPos,
                 player.transform.rotation);
 
@@ -153,10 +164,37 @@ namespace KeenCombat.Skills
 
             if (IsGone(player)) yield break;
 
-            // Rectangle finisher damage
-            ApplyRectangleHit(player, weapon, attackDir,
+            // Long-line finisher damage
+            ApplyRectangleHit(player, weapon, finisherDir,
                               Plugin.FistSkillDamage.Value * 1.0f,
                               10.0f);
+        }
+
+        // -----------------------------------------------------------------------
+        // One-handed sword hitbox, read from a vanilla sword so it matches
+        // exactly. Falls back to typical sword values if none is found.
+        // -----------------------------------------------------------------------
+        private static float _swordRange = -1f;
+        private static float _swordAngle = -1f;
+
+        private static (float range, float angle) GetSwordHitbox()
+        {
+            if (_swordRange > 0f) return (_swordRange, _swordAngle);
+
+            var db = ObjectDB.instance;
+            foreach (var name in new[] { "SwordIron", "SwordBronze", "SwordSilver", "SwordBlackmetal" })
+            {
+                var drop = db?.GetItemPrefab(name)?.GetComponent<ItemDrop>();
+                if (drop == null) continue;
+                var atk = drop.m_itemData.m_shared.m_attack;
+                if (atk.m_attackRange <= 0f) continue;
+
+                _swordRange = atk.m_attackRange;
+                _swordAngle = atk.m_attackAngle > 0f ? atk.m_attackAngle : 90f;
+                return (_swordRange, _swordAngle);
+            }
+
+            return (2.0f, 90f); // fallback, not cached so a later lookup can succeed
         }
 
         // -----------------------------------------------------------------------
@@ -179,16 +217,27 @@ namespace KeenCombat.Skills
             return true;
         }
 
+        // Stagger value large enough to fill any non-boss stagger bar at once
+        private const float FullStagger = 1000f;
+
         private static void DamageTarget(Player player, ItemDrop.ItemData weapon,
                                          Character character, Vector3 direction,
-                                         float damageMultiplier, float push, float stagger)
+                                         float damageMultiplier, float push)
         {
+            // Hits on an already-staggered enemy get Valheim's staggered damage
+            // bonus. Divide it back out so every swing deals the same damage it
+            // did before Onslaught staggered (the first, unstaggered hit is
+            // unchanged). Bosses can't be force-staggered, so no adjustment.
+            bool isBoss = character.IsBoss();
+            if (!isBoss && character.IsStaggering())
+                damageMultiplier /= Mathf.Max(1f, Plugin.FistStaggeredDamageBonus.Value);
+
             // Fresh HitData per enemy — Valheim modifies it when applied
             HitData hit = new HitData();
             hit.m_damage = weapon.GetDamage();
             hit.m_damage.Modify(damageMultiplier);
             hit.m_pushForce = push;
-            hit.m_staggerMultiplier = stagger;
+            hit.m_staggerMultiplier = isBoss ? 1f : FullStagger;
             hit.m_dir = direction;
             hit.m_attacker = player.GetZDOID();
             hit.m_point = character.transform.position;
@@ -199,12 +248,17 @@ namespace KeenCombat.Skills
                 character.SetHealth(1f);
         }
 
-        private static void ApplyConeHit(Player player, ItemDrop.ItemData weapon,
-                                          Vector3 direction, float damageMultiplier,
-                                          float coneAngle, float range)
+        // Sword-style arc: anything whose nearest point is within reach and
+        // inside the arc in front of the player. Measuring to the nearest
+        // point (not the creature's center) means large enemies standing
+        // right in front of you are hit like with a real sword.
+        private static void ApplyArcHit(Player player, ItemDrop.ItemData weapon,
+                                        Vector3 direction, float damageMultiplier,
+                                        float arcAngle, float range)
         {
-            var cols = Physics.OverlapSphere(
-                player.transform.position + Vector3.up + direction, range, SkillMasks.Characters);
+            Vector3 origin = player.transform.position + Vector3.up;
+
+            var cols = Physics.OverlapSphere(origin, range + 1f, SkillMasks.Characters);
 
             // One hit per enemy, even if it has several colliders
             var alreadyHit = new HashSet<Character>();
@@ -213,15 +267,25 @@ namespace KeenCombat.Skills
             {
                 var character = col.GetComponentInParent<Character>();
                 if (!IsValidTarget(player, character)) continue;
+                if (alreadyHit.Contains(character!)) continue;
 
-                Vector3 toTarget = (character!.transform.position
-                                  - player.transform.position).normalized;
-                if (Vector3.Angle(direction, toTarget) > coneAngle * 0.5f) continue;
+                // ClosestPoint doesn't support non-convex mesh colliders —
+                // use the collider's bounding box for those
+                Vector3 nearest = (col is MeshCollider mc && !mc.convex)
+                    ? col.bounds.ClosestPoint(origin)
+                    : col.ClosestPoint(origin);
+                Vector3 flat = nearest - origin;
+                flat.y = 0f;
 
-                if (!alreadyHit.Add(character)) continue;
+                // Within reach (horizontal), and inside the arc unless
+                // practically on top of the player
+                if (flat.magnitude > range) continue;
+                if (flat.sqrMagnitude > 0.25f &&
+                    Vector3.Angle(direction, flat) > arcAngle * 0.5f) continue;
 
-                DamageTarget(player, weapon, character, direction,
-                             damageMultiplier, 2.0f, 1.0f);
+                alreadyHit.Add(character!);
+                DamageTarget(player, weapon, character!, direction,
+                             damageMultiplier, 2.0f);
             }
         }
 
@@ -254,7 +318,7 @@ namespace KeenCombat.Skills
                 if (!alreadyHit.Add(character!)) continue;
 
                 DamageTarget(player, weapon, character!, direction,
-                             damageMultiplier, 5.0f, 3.0f);
+                             damageMultiplier, 5.0f);
             }
         }
     }
