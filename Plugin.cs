@@ -21,7 +21,7 @@ namespace KeenCombat
     {
         public const string PluginGUID = "Bhimas.KeenCombat";
         public const string PluginName = "KeenCombat";
-        public const string PluginVersion = "1.1.0";
+        public const string PluginVersion = "1.1.1";
 
         internal static ManualLogSource Log = null!;
         internal static Plugin instance = null!;
@@ -111,6 +111,7 @@ namespace KeenCombat
         // Fist Onslaught
         internal static ConfigEntry<float> FistSkillCooldown = null!;
         internal static ConfigEntry<float> FistSkillDamage = null!;
+        internal static ConfigEntry<float> FistStaggeredDamageBonus = null!;
 
         // 2H Mace Earthquake
         internal static ConfigEntry<float> TwoHandedMaceSkillCooldown = null!;
@@ -403,6 +404,10 @@ namespace KeenCombat
                 "Cooldown in seconds for Onslaught.");
             FistSkillDamage = Config.Bind("Fist Onslaught", "DamageMultiplier", 1.0f,
                 "Base damage multiplier. Combo hits use 50%, finisher uses 100%.");
+            FistStaggeredDamageBonus = Config.Bind("Fist Onslaught", "StaggeredDamageBonus", 2f,
+                "Onslaught staggers every non-boss enemy it hits. Valheim multiplies damage against " +
+                "staggered enemies, so Onslaught divides that bonus back out to keep its damage " +
+                "unchanged. Set this to match the game's staggered damage multiplier.");
 
             // 2H Mace Earthquake
             TwoHandedMaceSkillCooldown = Config.Bind("2H Mace Earthquake", "Cooldown", 15f,
