@@ -21,7 +21,7 @@ namespace KeenCombat
     {
         public const string PluginGUID = "Bhimas.KeenCombat";
         public const string PluginName = "KeenCombat";
-        public const string PluginVersion = "1.1.1";
+        public const string PluginVersion = "1.1.2";
 
         internal static ManualLogSource Log = null!;
         internal static Plugin instance = null!;
@@ -557,9 +557,11 @@ namespace KeenCombat
 
             // HUD
             SkillWidgetX = Config.Bind("HUD", "SkillWidgetX", 605f,
-                new ConfigDescription("Horizontal position of the skill slot widget.", null, hidden));
+                "Horizontal position of the KeenCombat skill slot on screen. " +
+                "Higher = further right, lower = further left. Changes apply instantly. Default: 605");
             SkillWidgetY = Config.Bind("HUD", "SkillWidgetY", -44f,
-                new ConfigDescription("Vertical position of the skill slot widget.", null, hidden));
+                "Vertical position of the KeenCombat skill slot on screen. " +
+                "Higher = further up, lower = further down. Changes apply instantly. Default: -44");
         }
 
         internal static Sprite? LoadEmbeddedSprite(string filename)
