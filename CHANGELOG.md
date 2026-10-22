@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.1.2
+ 
+### Added
+ 
+- **Movable skill slot** — reposition the KeenCombat skill icon on screen with `SkillWidgetX` and `SkillWidgetY` in the HUD section of the config manager
+
+## 1.1.1
+**Changed: Onslaught rework:**
+- Every combo swing now uses a one-handed sword's reach and swing arc
+- Each swing aims where you're facing, so turning toward an enemy mid-combo lands every hit
+- Onslaught now fully staggers every enemy it hits (except bosses), with damage adjusted so it hits exactly as hard as before
+
+**Fixed**
+- Non-weapon items like the tankard and stones showing the Blink Strike skill
+
 ## 1.1.0 — Controls Update
 
 ### Added
