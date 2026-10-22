@@ -45,7 +45,7 @@ Those looking to put a bit more action-combat into their Valheim experience. Thi
 
 ![](https://raw.githubusercontent.com/BhimaJenkins/KeenCombat/main/icons/PoisonMayhemIcon.png) **Poison Mayhem (Dual Knife):** Leap backward and drop a cluster of poison bombs at your original position, dealing direct and poison damage to all nearby enemies.
 
-![](https://raw.githubusercontent.com/BhimaJenkins/KeenCombat/main/icons/OnslaughtIcon.png) **Onslaught (Fist):** Launch into a ferocious forward combo, finishing with a powerful lunge that damages all enemies in a long line ahead.
+![](https://raw.githubusercontent.com/BhimaJenkins/KeenCombat/main/icons/OnslaughtIcon.png) **Onslaught (Fist):** Launch into a ferocious forward combo, that staggers enemies. Finish with a powerful lunge that damages all enemies in a long line ahead.
 
 ![](https://raw.githubusercontent.com/BhimaJenkins/KeenCombat/main/icons/EarthquakeIcon.png) **Earthquake (2H Mace):** Slam the ground and send four shockwaves rippling forward in sequence, dealing heavy damage to everything in their path.
 
